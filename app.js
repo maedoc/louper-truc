@@ -520,14 +520,7 @@ $('btnDemo').addEventListener('click', async () => {
     if (!r.ok) throw new Error('local');
     await loadArrayBuffer(await r.arrayBuffer(), 'King Oliver — Krooked Blues (1923)');
   } catch {
-    try {
-      const url = 'https://archive.org/download/78_krooked-blues_king-olivers-jazz-band-jelly-roll-morton_gbia0284021a/Krooked%20Blues%20-%20King%20Oliver%27s%20Jazz%20Band%20-%20Jelly%20Roll%20Morton.ogg';
-      const r = await fetch(url);
-      if (!r.ok) throw new Error('remote');
-      await loadArrayBuffer(await r.arrayBuffer(), 'King Oliver — Krooked Blues (1923)');
-    } catch {
-      setStatus('Demo failed. Drop your own file.');
-    }
+    setStatus('Demo failed. Drop your own file.');
   }
 });
 
