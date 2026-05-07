@@ -279,6 +279,7 @@ function tick() {
       }
     }
     scrub.value = t;
+    draw();
   }
   raf = requestAnimationFrame(tick);
 }
@@ -288,6 +289,7 @@ const touches = new Map();
 
 /* mouse */
 canvas.addEventListener('mousedown', e => {
+  console.log('[evt] mousedown button=', e.button, 'shift=', e.shiftKey, 'clientX=', e.clientX, 'stateBefore=', state);
   const rect = canvas.getBoundingClientRect();
   const x = e.clientX - rect.left;
   pointer = { x0: x, time0: performance.now(), origView: viewStart };
@@ -302,6 +304,7 @@ canvas.addEventListener('mousedown', e => {
     state = 'idle-down';
   }
   lastInteractionTime = performance.now();
+  console.log('[evt] mousedown -> state=', state);
 });
 
 window.addEventListener('mousemove', e => {
@@ -319,12 +322,13 @@ window.addEventListener('mousemove', e => {
     draw();
     lastInteractionTime = performance.now();
   } else if (state === 'idle-down') {
-    if (Math.abs(dx) > 4) { state = 'panning'; pointer.origView = viewStart; }
+    if (Math.abs(dx) > 4) { state = 'panning'; pointer.origView = viewStart; console.log('[evt] idle-down -> panning'); }
     lastInteractionTime = performance.now();
   }
 });
 
 window.addEventListener('mouseup', e => {
+  console.log('[evt] mouseup stateBefore=', state, 'target=', e.target.id || e.target.tagName);
   if (state === 'idle') return;
   if (state === 'idle-down') {
     const rect = canvas.getBoundingClientRect();
@@ -338,12 +342,14 @@ window.addEventListener('mouseup', e => {
   }
   state = 'idle';
   lastInteractionTime = performance.now();
+  console.log('[evt] mouseup -> state=idle');
 });
 
 canvas.addEventListener('contextmenu', e => e.preventDefault());
 
 /* wheel zoom */
 canvas.addEventListener('wheel', e => {
+  console.log('[evt] wheel deltaY=', e.deltaY);
   e.preventDefault();
   const rect = canvas.getBoundingClientRect();
   const x = e.clientX - rect.left;
@@ -371,6 +377,7 @@ canvas.addEventListener('dblclick', e => {
 
 /* touch */
 canvas.addEventListener('touchstart', e => {
+  console.log('[evt] touchstart touches=', e.touches.length, 'stateBefore=', state);
   e.preventDefault();
   const rect = canvas.getBoundingClientRect();
   if (e.touches.length === 2) {
@@ -430,6 +437,7 @@ canvas.addEventListener('touchmove', e => {
       if (Math.abs(dx) > 8) {
         if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
         state = 'panning';
+        console.log('[evt] touch idle-down -> panning');
       }
     } else if (state === 'panning') {
       viewStart = clamp(touch.origView - dx / zoom, 0, Math.max(0, duration - cssW / zoom));
@@ -444,6 +452,7 @@ canvas.addEventListener('touchmove', e => {
 }, { passive: false });
 
 canvas.addEventListener('touchend', e => {
+  console.log('[evt] touchend changedTouches=', e.changedTouches.length, 'stateBefore=', state);
   if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
   if (e.touches.length === 0) {
     if (state === 'idle-down') {
@@ -468,7 +477,8 @@ canvas.addEventListener('touchend', e => {
   lastInteractionTime = performance.now();
 });
 
-canvas.addEventListener('touchcancel', () => {
+canvas.addEventListener('touchcancel', e => {
+  console.log('[evt] touchcancel stateBefore=', state);
   if (longPressTimer) clearTimeout(longPressTimer);
   state = 'idle';
 });
@@ -525,6 +535,18 @@ $('btnDemo').addEventListener('click', async () => {
 });
 
 function setStatus(msg) { $('status').innerHTML = `<span class="pill">${msg}</span>`; }
+
+/* ---------- safety resets ---------- */
+window.addEventListener('blur', () => {
+  console.log('[evt] window blur -> forcing state=idle');
+  state = 'idle';
+  if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
+});
+document.addEventListener('mouseleave', () => {
+  console.log('[evt] document mouseleave -> forcing state=idle');
+  state = 'idle';
+  if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
+});
 
 /* ---------- boot ---------- */
 resize();
