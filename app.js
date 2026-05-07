@@ -162,6 +162,7 @@ async function loadArrayBuffer(ab, name) {
   cuePoint = 0;
   loopStart = 0;
   loopEnd = duration;
+  pauseOffset = 0;
   loopOn = false;
   viewStart = 0;
   zoom = cssW / duration;
