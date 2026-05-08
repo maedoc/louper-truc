@@ -14,9 +14,30 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Stamp build info into HTML
+        env:
+          RUN_ID: ${{ github.run_id }}
+          SHA7: ${{ github.sha }}
         run: |
-          sed -i 's|{{GITHUB_RUN_ID}}|'$GITHUB_RUN_ID'|g' index.html
-          sed -i 's|{{GITHUB_SHA}}|'${GITHUB_SHA:0:7}'|g' index.html
+          python3 -c "
+          import os, sys
+          run_id = os.environ['RUN_ID']
+          sha7 = os.environ['SHA7'][:7]
+          with open('index.html') as f:
+            content = f.read()
+          before = content
+          content = content.replace('{{GITHUB_RUN_ID}}', run_id)
+          content = content.replace('{{GITHUB_SHA}}', sha7)
+          if content == before:
+            print('ERROR: no replacements made', file=sys.stderr)
+            sys.exit(1)
+          with open('index.html', 'w') as f:
+            f.write(content)
+          print('Build stamps applied — RUN_ID:', run_id, ' SHA:', sha7)
+          "
+      - name: Verify build stamps
+        run: |
+          grep -o 'href="[^"]*"' index.html | head -1
+          grep -o '>[a-f0-9]\{7\}<' index.html || true
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
