@@ -12,6 +12,7 @@
   <h1>louper-truc</h1>
   <div class="controls">
     <button id="btnLoad">Load audio</button>
+    <select id="trackSelect" class="track-select"><option disabled selected>Load a track…</option></select>
     <button id="btnPlay">Play</button>
     <button id="btnLoop" title="Toggle loop on selected region">Loop: off</button>
     <button id="btnResetZoom">Reset view</button>
@@ -28,7 +29,12 @@
     <div class="card">
       <h2>Drop an audio file here</h2>
       <p>OGG, MP3, WAV, FLAC — anything your browser can decode.</p>
-      <button id="btnDemo">Load demo (King Oliver — Krooked Blues, 1923)</button>
+      <div class="track-row">
+        <select id="trackSelectOverlay" class="track-select">
+          <option disabled selected>Choose a jazz track…</option>
+        </select>
+        <button id="btnDemo">Load demo (King Oliver — Krooked Blues, 1923)</button>
+      </div>
     </div>
   </div>
   <div class="zoom-hint hidden" id="zoomHint">Scroll to zoom · Drag to pan · Shift+drag to loop · Click to cue</div>

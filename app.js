@@ -499,24 +499,11 @@ canvas.addEventListener('touchcancel', e => {
   state = 'idle';
 });
 
-/* ---------- drag & drop ---------- */
+/* ---------- drag & drop (old non-persisting handlers removed — persistence wired below) ---------- */
 dropzone.addEventListener('dragover', e => { e.preventDefault(); canvas.classList.add('dragover'); });
 dropzone.addEventListener('dragleave', () => canvas.classList.remove('dragover'));
-dropzone.addEventListener('drop', e => {
-  e.preventDefault();
-  canvas.classList.remove('dragover');
-  const f = e.dataTransfer.files[0];
-  if (f) loadFile(f);
-});
-
-function loadFile(file) {
-  const r = new FileReader();
-  r.onload = ev => loadArrayBuffer(ev.target.result, file.name);
-  r.readAsArrayBuffer(file);
-}
 
 $('btnLoad').addEventListener('click', () => $('fileInput').click());
-$('fileInput').addEventListener('change', e => { if (e.target.files[0]) loadFile(e.target.files[0]); });
 
 $('btnPlay').addEventListener('click', togglePlay);
 $('btnLoop').addEventListener('click', toggleLoop);
@@ -566,12 +553,206 @@ document.addEventListener('mouseleave', () => {
 
 /* ---------- keyboard ---------- */
 window.addEventListener('keydown', e => {
-  if (e.code === 'Space' && e.target.tagName !== 'INPUT' && e.target.tagName !== 'BUTTON') {
+  if (e.code === 'Space' && e.target.tagName !== 'INPUT' && e.target.tagName !== 'BUTTON' && e.target.tagName !== 'SELECT') {
     e.preventDefault();
     togglePlayFromCue();
   }
 });
 
+/* ---------- track catalog ---------- */
+const BUNDLED_TRACKS = [
+  { id:'b1',  file:'assets/tracks/01_Bloomdido.ogg',           name:'Bloomdido' },
+  { id:'b2',  file:'assets/tracks/02_My_Melancholy_Baby.ogg',    name:'My Melancholy Baby' },
+  { id:'b3',  file:'assets/tracks/03_Relaxin_with_Lee.ogg',      name:'Relaxin\' with Lee' },
+  { id:'b4',  file:'assets/tracks/04_Leap_Frog.ogg',             name:'Leap Frog' },
+  { id:'b5',  file:'assets/tracks/05_An_Oscar_for_Treadwell.ogg', name:'An Oscar for Treadwell' },
+  { id:'b6',  file:'assets/tracks/06_Mohawk.ogg',                name:'Mohawk' },
+  { id:'b7',  file:'assets/tracks/07_My_Melancholy_Baby_Complete.ogg', name:'My Melancholy Baby (complete)' },
+  { id:'b8',  file:'assets/tracks/08_Relaxin_with_Lee_Complete.ogg',   name:'Relaxin\' with Lee (complete)' },
+  { id:'b9',  file:'assets/tracks/09_Leap_Frog_Complete.ogg',    name:'Leap Frog (complete)' },
+  { id:'b10', file:'assets/tracks/10_Leap_Frog_Complete_2.ogg',  name:'Leap Frog (complete take 2)' },
+  { id:'b11', file:'assets/tracks/11_Leap_Frog_Complete_3.ogg',  name:'Leap Frog (complete take 3)' },
+  { id:'b12', file:'assets/tracks/12_Oscar_for_Treadwell_Complete.ogg', name:'Oscar for Treadwell (complete)' },
+  { id:'b13', file:'assets/tracks/13_Mohawk_Complete.ogg',       name:'Mohawk (complete)' },
+  { id:'b14', file:'assets/tracks/14_A_Night_In_Tunisia.ogg',    name:'A Night in Tunisia' },
+  { id:'b15', file:'assets/tracks/15_Blues_For_Alice_Alt.ogg',   name:'Blues for Alice (alt take)' },
+  { id:'b16', file:'assets/tracks/16_Blues_For_Alice.ogg',       name:'Blues for Alice' },
+  { id:'b17', file:'assets/tracks/17_All_Blues.ogg',             name:'All Blues' },
+  { id:'b18', file:'assets/tracks/18_Half_Nelson.ogg',           name:'Half Nelson' },
+  { id:'b19', file:'assets/tracks/19_Airegin.ogg',               name:'Airegin' },
+  { id:'b20', file:'assets/tracks/20_Moments_Notice.ogg',        name:'Moment\'s Notice' }
+];
+
+/* ---------- IndexedDB persistence ---------- */
+const DB_NAME = 'louper_truc_db';
+const DB_VER  = 1;
+const STORE   = 'tracks';
+const LAST_KEY= '__last_track__';
+
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VER);
+    req.onupgradeneeded = e => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: 'id' });
+    };
+    req.onsuccess = e => resolve(e.target.result);
+    req.onerror   = e => reject(e.target.error);
+  });
+}
+
+async function saveTrack(id, name, arrayBuffer) {
+  const db = await openDB();
+  const tx = db.transaction(STORE, 'readwrite');
+  const s  = tx.objectStore(STORE);
+  s.put({ id, name, data: arrayBuffer, savedAt: Date.now() });
+  s.put({ id: LAST_KEY, lastId: id, name, savedAt: Date.now() });
+  return new Promise((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onerror    = e => reject(e.target.error);
+  });
+}
+
+async function loadTrack(id) {
+  const db = await openDB();
+  const tx = db.transaction(STORE, 'readonly');
+  const s  = tx.objectStore(STORE);
+  return new Promise((resolve, reject) => {
+    const r = s.get(id);
+    r.onsuccess = () => resolve(r.result || null);
+    r.onerror     = e => reject(e.target.error);
+  });
+}
+
+async function getSavedIds() {
+  const db = await openDB();
+  const tx = db.transaction(STORE, 'readonly');
+  const s  = tx.objectStore(STORE);
+  return new Promise((resolve, reject) => {
+    const r = s.getAllKeys();
+    r.onsuccess = () => resolve(r.result.filter(k => k !== LAST_KEY));
+    r.onerror   = e => reject(e.target.error);
+  });
+}
+
+async function getLastTrackMeta() {
+  return await loadTrack(LAST_KEY);
+}
+
+/* ---------- track list UI ---------- */
+function populateSelects() {
+  const opts = [`<option disabled selected>Choose a track…</option>`];
+  opts.push(`<optgroup label="Built-in jazz">`);
+  BUNDLED_TRACKS.forEach(t => opts.push(`<option value="${t.id}">${t.name}</option>`));
+  opts.push(`</optgroup>`);
+
+  const builtIn = opts.join('');
+  $('trackSelect').innerHTML = builtIn;
+  $('trackSelectOverlay').innerHTML = builtIn;
+
+  getSavedIds().then(async ids => {
+    if (!ids.length) return;
+    const db = await openDB();
+    const tx = db.transaction(STORE, 'readonly');
+    const s  = tx.objectStore(STORE);
+    const names = {};
+    await Promise.all(ids.map(id => new Promise(resolve => {
+      const r = s.get(id);
+      r.onsuccess = () => { names[id] = (r.result && r.result.name) || id; resolve(); };
+      r.onerror   = () => { names[id] = id; resolve(); };
+    })));
+
+    const userOpts = ids.map(id => `<option value="${id}">${names[id]}</option>`).join('');
+    const full = builtIn + `<optgroup label="Your uploads">` + userOpts + `</optgroup>`;
+    [$('trackSelect'), $('trackSelectOverlay')].forEach(sel => {
+      const prev = sel.value;
+      sel.innerHTML = full;
+      if (prev) sel.value = prev;
+    });
+  });
+}
+
+async function selectTrack(id) {
+  if (!id) return;
+  // Keep both selects in sync
+  [$('trackSelect'), $('trackSelectOverlay')].forEach(s => s.value = id);
+
+  const bundle = BUNDLED_TRACKS.find(t => t.id === id);
+  if (bundle) {
+    setStatus('Loading ' + bundle.name + '…');
+    try {
+      const r = await fetch(bundle.file);
+      if (!r.ok) throw new Error('fetch ' + bundle.file);
+      const ab = await r.arrayBuffer();
+      await loadArrayBuffer(ab, bundle.name);
+      await saveTrack(id, bundle.name, ab);
+    } catch (err) {
+      setStatus('Failed to load ' + bundle.name + ': ' + err.message);
+    }
+    return;
+  }
+
+  // User upload from IndexedDB
+  const rec = await loadTrack(id);
+  if (rec && rec.data) {
+    setStatus('Loading ' + rec.name + '…');
+    await loadArrayBuffer(rec.data, rec.name);
+  } else {
+    setStatus('Track not found in storage');
+  }
+}
+
+/* ---------- wiring ---------- */
+$('trackSelect').addEventListener('change', e => selectTrack(e.target.value));
+$('trackSelectOverlay').addEventListener('change', e => selectTrack(e.target.value));
+
+// Intercept file input to also persist
+$('fileInput').addEventListener('change', e => {
+  const f = e.target.files[0];
+  if (!f) return;
+  const r = new FileReader();
+  r.onload = ev => {
+    const ab = ev.target.result;
+    const id = 'user_' + encodeURIComponent(f.name) + '_' + Date.now();
+    saveTrack(id, f.name, ab).then(() => populateSelects());
+    loadArrayBuffer(ab, f.name);
+  };
+  r.readAsArrayBuffer(f);
+});
+
+// Intercept drop to also persist
+dropzone.addEventListener('drop', e => {
+  e.preventDefault();
+  canvas.classList.remove('dragover');
+  const f = e.dataTransfer.files[0];
+  if (!f) return;
+  const r = new FileReader();
+  r.onload = ev => {
+    const ab = ev.target.result;
+    const id = 'user_' + encodeURIComponent(f.name) + '_' + Date.now();
+    saveTrack(id, f.name, ab).then(() => populateSelects());
+    loadArrayBuffer(ab, f.name);
+  };
+  r.readAsArrayBuffer(f);
+});
+
+/* ---------- auto-restore last track ---------- */
+async function restoreLast() {
+  const meta = await getLastTrackMeta();
+  if (!meta || !meta.lastId) return;
+  const id = meta.lastId;
+  // If it's a built-in, it will fetch; if user-uploaded, it will read from DB
+  const rec = await loadTrack(id);
+  if (rec && rec.data) {
+    await loadArrayBuffer(rec.data, rec.name || meta.name || 'Restored track');
+    [$('trackSelect'), $('trackSelectOverlay')].forEach(s => s.value = id);
+  } else if (BUNDLED_TRACKS.find(t => t.id === id)) {
+    await selectTrack(id);
+  }
+}
+
 /* ---------- boot ---------- */
 resize();
 raf = requestAnimationFrame(tick);
+populateSelects();
+restoreLast();
