@@ -12,8 +12,24 @@ jobs:
       pages: write
       id-token: write
     steps:
-      - uses: actions/checkout@v4
-      - name: Stamp build info into HTML
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9afed3 # v4
+        with:
+          lfs: true
+      - name: Ensure LFS content is pulled
+        run: |
+          git lfs pull
+          if head -1 assets/tracks/01_Bloomdido.ogg | grep -q 'git-lfs'; then
+            echo 'ERROR: LFS files are still pointers' >&2
+            exit 1
+          fi
+          echo 'LFS content verified'
+      - uses: actions/setup-node@cdca7365b2dadb8aad0a33bc7601856ffab00248 # v4
+        with:
+          node-version: '20'
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run test
+      - name: Stamp build info & cache-bust into HTML
         env:
           RUN_ID: ${{ github.run_id }}
           SHA7: ${{ github.sha }}
@@ -27,6 +43,8 @@ jobs:
           before = content
           content = content.replace('{{GITHUB_RUN_ID}}', run_id)
           content = content.replace('{{GITHUB_SHA}}', sha7)
+          content = content.replace('style.css', f'style.css?sha={sha7}')
+          content = content.replace('js/main.js', f'js/main.js?sha={sha7}')
           if content == before:
             print('ERROR: no replacements made', file=sys.stderr)
             sys.exit(1)
@@ -38,9 +56,7 @@ jobs:
         run: |
           grep -o 'href="[^"]*"' index.html | head -1
           grep -o '>[a-f0-9]\{7\}<' index.html || true
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@56afc609e7420260d3c00010e1b1d4f11c19f535 # v3
         with:
           path: .
-      - name: Deploy to GitHub Pages
-        uses: actions/deploy-pages@v4
+      - uses: actions/deploy-pages@d6db91d4bb6e40623d6fa32a6403c3e5a2a5e0fd # v4

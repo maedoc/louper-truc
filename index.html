@@ -2,7 +2,9 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self';">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="referrer" content="no-referrer">
 <title>louper-truc</title>
 <link rel="stylesheet" href="style.css">
 <link rel="icon" href="data:,">
@@ -25,6 +27,7 @@
 
 <div class="dropzone" id="dropzone">
   <canvas id="waveform"></canvas>
+  <canvas id="overlayCanvas"></canvas>
   <div class="overlay" id="overlay">
     <div class="card">
       <h2>Drop an audio file here</h2>
@@ -49,6 +52,6 @@
   <span id="timeEnd">0:00.0</span>
 </div>
 
-<script src="app.js"></script>
+<script src="js/main.js" type="module"></script>
 </body>
 </html>

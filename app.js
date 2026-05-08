@@ -1,37 +1,53 @@
 /* louper-truc — waveform looper & transcription assistant */
 'use strict';
 
-const BLOCK = 64; // samples per peak block
+/* ---------- constants ---------- */
+const BLOCK = 64;
+const ZOOM_MIN = 1;
+const ZOOM_MAX = 2000;
+const LOOP_MIN_SEC = 0.05;
+const DRAG_THRESHOLD_MOUSE = 4;
+const DRAG_THRESHOLD_TOUCH = 8;
+const LONG_PRESS_MS = 450;
+const WHEEL_ZOOM_SENSITIVITY = 0.002;
+const DBLCLICK_ZOOM_FACTOR = 2;
+const INTERACTION_TIMEOUT_MS = 250;
+const PLAYBACK_END_THRESHOLD = 0.05;
+const AUTO_FOLLOW_MARGIN = 0.15;
 
 /* ---------- state ---------- */
 let audioCtx = null;
 let buffer = null;
-let peaks = null;            // Float32Array interleaved [min0,max0,min1,max1,...]
-let sampleRate = 44100;
+let peaks = null;
+let sampleRate = 0;
 let duration = 0;
 
-let zoom = 1;                // CSS pixels per second
-let viewStart = 0;           // seconds
+let zoom = 1;
+let viewStart = 0;
 let cssW = 0, cssH = 0, dpr = 1;
+let canvasRect = null;
 
 let isPlaying = false;
 let playSpeed = 1;
-let playStartTime = 0;       // audioCtx.currentTime when source started
-let playOffset = 0;          // buffer offset when source started
-let pauseOffset = 0;         // buffer time when paused
+let playStartTime = 0;
+let playOffset = 0;
+let pauseOffset = 0;
 
 let cuePoint = 0;
 let loopOn = false;
 let loopStart = 0;
 let loopEnd = 0;
 
-let state = 'idle';          // idle | idle-down | panning | selecting | pinching
+let state = 'idle';
 let pointer = {};
 let pinch = {};
 let longPressTimer = null;
 let lastInteractionTime = 0;
-let autoFollow = true;
+const autoFollow = true;
 let raf = 0;
+
+let sourceNode = null;
+let stoppingManually = false;
 
 /* ---------- DOM ---------- */
 const $ = id => document.getElementById(id);
@@ -44,6 +60,7 @@ const scrub = $('scrub');
 
 /* ---------- utils ---------- */
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const clampViewStart = t => clamp(t, 0, Math.max(0, duration - cssW / zoom));
 const fmt = t => {
   const m = Math.floor(t / 60);
   const s = Math.floor(t % 60);
@@ -53,11 +70,16 @@ const fmt = t => {
 const timeToX = t => (t - viewStart) * zoom;
 const xToTime = x => viewStart + x / zoom;
 
+function updateZoomUI() {
+  $('zoomCtrl').value = zoom;
+  $('zoomCtrl').max = Math.max(100, Math.ceil(zoom * 10));
+}
+
 /* ---------- resize / DPR ---------- */
 function resize() {
-  const r = dropzone.getBoundingClientRect();
-  cssW = r.width;
-  cssH = r.height;
+  canvasRect = dropzone.getBoundingClientRect();
+  cssW = canvasRect.width;
+  cssH = canvasRect.height;
   dpr = window.devicePixelRatio || 1;
   canvas.width = Math.round(cssW * dpr);
   canvas.height = Math.round(cssH * dpr);
@@ -72,8 +94,6 @@ function initAudio() {
   if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   if (audioCtx.state === 'suspended') audioCtx.resume();
 }
-
-let sourceNode = null;
 
 function getCurrentTime() {
   if (!isPlaying) return pauseOffset;
@@ -91,18 +111,21 @@ function playInternal(offsetSec) {
   playOffset = offsetSec;
   sourceNode.start(0, offsetSec);
   sourceNode.onended = () => {
-    if (isPlaying && getCurrentTime() >= duration - 0.05) {
+    if (stoppingManually) { stoppingManually = false; return; }
+    if (isPlaying && getCurrentTime() >= duration - PLAYBACK_END_THRESHOLD) {
       isPlaying = false;
       pauseOffset = 0;
       updatePlayBtn();
+      cancelRaf();
     }
   };
 }
 
 function stopInternal() {
   if (sourceNode) {
-    try { sourceNode.stop(); } catch (e) {}
-    try { sourceNode.disconnect(); } catch (e) {}
+    stoppingManually = true;
+    try { sourceNode.stop(); } catch (_) { /* may throw if already stopped */ }
+    try { sourceNode.disconnect(); } catch (_) { /* may throw if already disconnected */ }
     sourceNode = null;
   }
 }
@@ -117,34 +140,20 @@ function seek(t) {
   }
 }
 
-function togglePlay() {
+function togglePlay(startTime) {
   initAudio();
   if (isPlaying) {
     pauseOffset = getCurrentTime();
     stopInternal();
     isPlaying = false;
+    cancelRaf();
   } else {
-    let t = pauseOffset;
+    let t = startTime;
     if (loopOn && (t < loopStart || t >= loopEnd)) t = loopStart;
     playInternal(t);
     isPlaying = true;
     lastInteractionTime = 0;
-  }
-  updatePlayBtn();
-}
-
-function togglePlayFromCue() {
-  initAudio();
-  if (isPlaying) {
-    pauseOffset = getCurrentTime();
-    stopInternal();
-    isPlaying = false;
-  } else {
-    let t = cuePoint;
-    if (loopOn && (t < loopStart || t >= loopEnd)) t = loopStart;
-    playInternal(t);
-    isPlaying = true;
-    lastInteractionTime = 0;
+    startRaf();
   }
   updatePlayBtn();
 }
@@ -152,8 +161,8 @@ function togglePlayFromCue() {
 function updatePlayBtn() { $('btnPlay').textContent = isPlaying ? 'Pause' : 'Play'; }
 
 function updateSpeed(val) {
-  playSpeed = parseFloat(val);
-  $('speedVal').textContent = playSpeed.toFixed(2) + '×';
+  playSpeed = parseFloat(val) || 1;
+  $('speedVal').textContent = playSpeed.toFixed(2) + '\u00d7';
   if (isPlaying) {
     const t = getCurrentTime();
     stopInternal();
@@ -167,45 +176,86 @@ function toggleLoop() {
   draw();
 }
 
+/* ---------- rAF ---------- */
+function tick() {
+  if (!isPlaying) return;
+  const now = performance.now();
+  const interacting = (now - lastInteractionTime) < INTERACTION_TIMEOUT_MS;
+  const t = getCurrentTime();
+  if (loopOn && t >= loopEnd - (1 / sampleRate)) {
+    seek(loopStart);
+  }
+  if (!interacting && autoFollow && zoom > cssW / duration) {
+    const margin = cssW * AUTO_FOLLOW_MARGIN;
+    const px = timeToX(t);
+    if (px > cssW - margin) {
+      viewStart = clampViewStart(t - margin / zoom);
+      draw();
+    } else if (px < margin) {
+      viewStart = clampViewStart(t - (cssW - margin) / zoom);
+      draw();
+    }
+  }
+  scrub.value = t;
+  draw();
+  raf = requestAnimationFrame(tick);
+}
+
+function startRaf() { if (!raf) raf = requestAnimationFrame(tick); }
+function cancelRaf() { if (raf) { cancelAnimationFrame(raf); raf = 0; } }
+
 /* ---------- load ---------- */
 async function loadArrayBuffer(ab, name) {
   initAudio();
-  const decoded = await audioCtx.decodeAudioData(ab.slice(0));
-  buffer = decoded;
-  sampleRate = buffer.sampleRate;
-  duration = buffer.duration;
-  computePeaks();
-  cuePoint = 0;
-  loopStart = 0;
-  loopEnd = duration;
-  pauseOffset = 0;
-  loopOn = false;
-  viewStart = 0;
-  zoom = cssW / duration;
-  if (zoom < 1) zoom = 1;
-  $('zoomCtrl').value = zoom;
-  $('zoomCtrl').max = Math.max(100, Math.ceil(zoom * 10));
-  $('scrub').max = duration;
-  $('timeEnd').textContent = fmt(duration);
-  setStatus(name);
-  overlay.classList.add('hidden');
-  zoomHint.classList.remove('hidden');
-  draw();
+  if (ab.byteLength < 200) {
+    const text = new TextDecoder().decode(ab);
+    if (text.startsWith('version https://git-lfs.github.com')) {
+      setStatus('Audio file is a Git LFS pointer, not actual audio. Pull LFS content first.');
+      return;
+    }
+  }
+  try {
+    const decoded = await audioCtx.decodeAudioData(ab.slice(0));
+    buffer = decoded;
+    sampleRate = buffer.sampleRate;
+    duration = buffer.duration;
+    computePeaks();
+    cuePoint = 0;
+    loopStart = 0;
+    loopEnd = duration;
+    pauseOffset = 0;
+    loopOn = false;
+    viewStart = 0;
+    zoom = cssW / duration;
+    if (zoom < ZOOM_MIN) zoom = ZOOM_MIN;
+    updateZoomUI();
+    $('scrub').max = duration;
+    $('timeEnd').textContent = fmt(duration);
+    setStatus(name);
+    overlay.classList.add('hidden');
+    zoomHint.classList.remove('hidden');
+    draw();
+  } catch (err) {
+    setStatus('Failed to decode audio: ' + (err.message || err));
+  }
 }
 
 function computePeaks() {
-  const ch = buffer.getChannelData(0);
-  const n = ch.length;
+  const n = buffer.getChannelData(0).length;
   const blocks = Math.ceil(n / BLOCK);
+  const channels = buffer.numberOfChannels;
   peaks = new Float32Array(blocks * 2);
   for (let i = 0; i < blocks; i++) {
     let min = 1, max = -1;
     const a = i * BLOCK;
     const b = Math.min(a + BLOCK, n);
-    for (let j = a; j < b; j++) {
-      const v = ch[j];
-      if (v < min) min = v;
-      if (v > max) max = v;
+    for (let c = 0; c < channels; c++) {
+      const ch = buffer.getChannelData(c);
+      for (let j = a; j < b; j++) {
+        const v = ch[j];
+        if (v < min) min = v;
+        if (v > max) max = v;
+      }
     }
     peaks[i * 2] = min;
     peaks[i * 2 + 1] = max;
@@ -274,40 +324,23 @@ function draw() {
   ctx.stroke();
 }
 
-/* ---------- rAF ---------- */
-function tick() {
-  const now = performance.now();
-  const interacting = (now - lastInteractionTime) < 250;
-  if (isPlaying) {
-    const t = getCurrentTime();
-    if (loopOn && t >= loopEnd - 0.005) {
-      seek(loopStart);
-    }
-    if (!interacting && autoFollow && zoom > cssW / duration) {
-      const margin = cssW * 0.15;
-      const px = timeToX(t);
-      if (px > cssW - margin) {
-        viewStart = clamp(t - margin / zoom, 0, Math.max(0, duration - cssW / zoom));
-        draw();
-      } else if (px < margin) {
-        viewStart = clamp(t - (cssW - margin) / zoom, 0, Math.max(0, duration - cssW / zoom));
-        draw();
-      }
-    }
-    scrub.value = t;
-    draw();
-  }
-  raf = requestAnimationFrame(tick);
-}
-
 /* ---------- interactions ---------- */
 const touches = new Map();
 
+function updateSelection(x) {
+  const ti = clamp(xToTime(x), 0, duration);
+  if (ti >= loopStart) loopEnd = ti;
+  else { loopEnd = loopStart; loopStart = ti; }
+}
+
+function finalizeSelection() {
+  if (loopEnd - loopStart < LOOP_MIN_SEC) { loopStart = 0; loopEnd = 0; }
+  else if (!loopOn) toggleLoop();
+}
+
 /* mouse */
 canvas.addEventListener('mousedown', e => {
-  console.log('[evt] mousedown button=', e.button, 'shift=', e.shiftKey, 'clientX=', e.clientX, 'stateBefore=', state);
-  const rect = canvas.getBoundingClientRect();
-  const x = e.clientX - rect.left;
+  const x = e.clientX - canvasRect.left;
   pointer = { x0: x, time0: performance.now(), origView: viewStart };
   if (e.shiftKey) {
     state = 'selecting';
@@ -320,97 +353,81 @@ canvas.addEventListener('mousedown', e => {
     state = 'idle-down';
   }
   lastInteractionTime = performance.now();
-  console.log('[evt] mousedown -> state=', state);
 });
 
 window.addEventListener('mousemove', e => {
   if (state === 'idle') return;
-  const rect = canvas.getBoundingClientRect();
-  const x = e.clientX - rect.left;
+  const x = e.clientX - canvasRect.left;
   const dx = x - pointer.x0;
   if (state === 'panning') {
-    viewStart = clamp(pointer.origView - dx / zoom, 0, Math.max(0, duration - cssW / zoom));
+    viewStart = clampViewStart(pointer.origView - dx / zoom);
     draw();
     lastInteractionTime = performance.now();
   } else if (state === 'selecting') {
-    const ti = clamp(xToTime(x), 0, duration);
-    if (ti >= loopStart) loopEnd = ti; else { loopEnd = loopStart; loopStart = ti; }
+    updateSelection(x);
     draw();
     lastInteractionTime = performance.now();
   } else if (state === 'idle-down') {
-    if (Math.abs(dx) > 4) { state = 'panning'; pointer.origView = viewStart; console.log('[evt] idle-down -> panning'); }
+    if (Math.abs(dx) > DRAG_THRESHOLD_MOUSE) { state = 'panning'; pointer.origView = viewStart; }
     lastInteractionTime = performance.now();
   }
 });
 
 window.addEventListener('mouseup', e => {
-  console.log('[evt] mouseup stateBefore=', state, 'target=', e.target.id || e.target.tagName);
   if (state === 'idle') return;
   if (state === 'idle-down') {
-    const rect = canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
+    const x = e.clientX - canvasRect.left;
     cuePoint = clamp(xToTime(x), 0, duration);
     seek(cuePoint);
     draw();
   } else if (state === 'selecting') {
-    if (loopEnd - loopStart < 0.05) { loopStart = 0; loopEnd = 0; }
-    else if (!loopOn) toggleLoop();
+    finalizeSelection();
   }
   state = 'idle';
   lastInteractionTime = performance.now();
-  console.log('[evt] mouseup -> state=idle');
 });
-
-canvas.addEventListener('contextmenu', e => e.preventDefault());
 
 /* wheel zoom */
 canvas.addEventListener('wheel', e => {
-  console.log('[evt] wheel deltaY=', e.deltaY);
   e.preventDefault();
-  const rect = canvas.getBoundingClientRect();
-  const x = e.clientX - rect.left;
+  const x = e.clientX - canvasRect.left;
   const t = xToTime(x);
-  const factor = Math.exp(-e.deltaY * 0.002);
-  zoom = clamp(zoom * factor, 1, 2000);
-  viewStart = clamp(t - x / zoom, 0, Math.max(0, duration - cssW / zoom));
-  $('zoomCtrl').value = zoom;
-  $('zoomCtrl').max = Math.max(100, Math.ceil(zoom * 10));
+  const factor = Math.exp(-e.deltaY * WHEEL_ZOOM_SENSITIVITY);
+  zoom = clamp(zoom * factor, ZOOM_MIN, ZOOM_MAX);
+  viewStart = clampViewStart(t - x / zoom);
+  updateZoomUI();
   draw();
   lastInteractionTime = performance.now();
 }, { passive: false });
 
-/* double-tap zoom (mouse dblclick) */
+/* double-click zoom */
 canvas.addEventListener('dblclick', e => {
-  const rect = canvas.getBoundingClientRect();
-  const x = e.clientX - rect.left;
+  const x = e.clientX - canvasRect.left;
   const t = xToTime(x);
-  zoom = clamp(zoom * 2, 1, 2000);
-  viewStart = clamp(t - x / zoom, 0, Math.max(0, duration - cssW / zoom));
-  $('zoomCtrl').value = zoom;
-  $('zoomCtrl').max = Math.max(100, Math.ceil(zoom * 10));
+  zoom = clamp(zoom * DBLCLICK_ZOOM_FACTOR, ZOOM_MIN, ZOOM_MAX);
+  viewStart = clampViewStart(t - x / zoom);
+  updateZoomUI();
   draw();
 });
 
 /* touch */
 canvas.addEventListener('touchstart', e => {
-  console.log('[evt] touchstart touches=', e.touches.length, 'stateBefore=', state);
   e.preventDefault();
-  const rect = canvas.getBoundingClientRect();
   if (e.touches.length === 2) {
     state = 'pinching';
     const t0 = e.touches[0], t1 = e.touches[1];
     const dx = t1.clientX - t0.clientX, dy = t1.clientY - t0.clientY;
     pinch.startDist = Math.hypot(dx, dy) || 1;
     pinch.startZoom = zoom;
-    const cx = (t0.clientX + t1.clientX) / 2 - rect.left;
+    const cx = (t0.clientX + t1.clientX) / 2 - canvasRect.left;
     pinch.centerTime = xToTime(cx);
     if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
     return;
   }
   if (e.touches.length === 1) {
     const t = e.touches[0];
-    const x = t.clientX - rect.left;
-    const y = t.clientY - rect.top;
+    const x = t.clientX - canvasRect.left;
+    const y = t.clientY - canvasRect.top;
     touches.set(t.identifier, { x0: x, y0: y, origView: viewStart });
     state = 'idle-down';
     longPressTimer = setTimeout(() => {
@@ -421,46 +438,42 @@ canvas.addEventListener('touchstart', e => {
         if (navigator.vibrate) navigator.vibrate(20);
         draw();
       }
-    }, 450);
+    }, LONG_PRESS_MS);
     lastInteractionTime = performance.now();
   }
 }, { passive: false });
 
 canvas.addEventListener('touchmove', e => {
   e.preventDefault();
-  const rect = canvas.getBoundingClientRect();
   if (state === 'pinching' && e.touches.length === 2) {
     const t0 = e.touches[0], t1 = e.touches[1];
     const dx = t1.clientX - t0.clientX, dy = t1.clientY - t0.clientY;
     const dist = Math.hypot(dx, dy) || 1;
     const ratio = dist / pinch.startDist;
-    zoom = clamp(pinch.startZoom * ratio, 1, 2000);
-    const cx = (t0.clientX + t1.clientX) / 2 - rect.left;
-    viewStart = clamp(pinch.centerTime - cx / zoom, 0, Math.max(0, duration - cssW / zoom));
-    $('zoomCtrl').value = zoom;
-    $('zoomCtrl').max = Math.max(100, Math.ceil(zoom * 10));
+    zoom = clamp(pinch.startZoom * ratio, ZOOM_MIN, ZOOM_MAX);
+    const cx = (t0.clientX + t1.clientX) / 2 - canvasRect.left;
+    viewStart = clampViewStart(pinch.centerTime - cx / zoom);
+    updateZoomUI();
     draw();
     lastInteractionTime = performance.now();
     return;
   }
   if (e.touches.length === 1) {
     const t = e.touches[0];
-    const x = t.clientX - rect.left;
+    const x = t.clientX - canvasRect.left;
     const touch = touches.get(t.identifier);
     if (!touch) return;
     const dx = x - touch.x0;
     if (state === 'idle-down') {
-      if (Math.abs(dx) > 8) {
+      if (Math.abs(dx) > DRAG_THRESHOLD_TOUCH) {
         if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
         state = 'panning';
-        console.log('[evt] touch idle-down -> panning');
       }
     } else if (state === 'panning') {
-      viewStart = clamp(touch.origView - dx / zoom, 0, Math.max(0, duration - cssW / zoom));
+      viewStart = clampViewStart(touch.origView - dx / zoom);
       draw();
     } else if (state === 'selecting') {
-      const ti = clamp(xToTime(x), 0, duration);
-      if (ti >= loopStart) loopEnd = ti; else { loopEnd = loopStart; loopStart = ti; }
+      updateSelection(x);
       draw();
     }
     lastInteractionTime = performance.now();
@@ -468,25 +481,21 @@ canvas.addEventListener('touchmove', e => {
 }, { passive: false });
 
 canvas.addEventListener('touchend', e => {
-  console.log('[evt] touchend changedTouches=', e.changedTouches.length, 'stateBefore=', state);
   if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
   if (e.touches.length === 0) {
     if (state === 'idle-down') {
       const ct = e.changedTouches[0];
-      const rect = canvas.getBoundingClientRect();
-      const x = ct.clientX - rect.left;
+      const x = ct.clientX - canvasRect.left;
       cuePoint = clamp(xToTime(x), 0, duration);
       seek(cuePoint);
       draw();
     } else if (state === 'selecting') {
-      if (loopEnd - loopStart < 0.05) { loopStart = 0; loopEnd = 0; }
-      else if (!loopOn) toggleLoop();
+      finalizeSelection();
     }
     state = 'idle';
   } else if (e.touches.length === 1 && state === 'pinching') {
     const t = e.touches[0];
-    const rect = canvas.getBoundingClientRect();
-    const x = t.clientX - rect.left;
+    const x = t.clientX - canvasRect.left;
     touches.set(t.identifier, { x0: x, origView: viewStart });
     state = 'panning';
   }
@@ -494,68 +503,82 @@ canvas.addEventListener('touchend', e => {
 });
 
 canvas.addEventListener('touchcancel', e => {
-  console.log('[evt] touchcancel stateBefore=', state);
   if (longPressTimer) clearTimeout(longPressTimer);
   state = 'idle';
 });
 
-/* ---------- drag & drop (old non-persisting handlers removed — persistence wired below) ---------- */
+/* ---------- drag & drop ---------- */
 dropzone.addEventListener('dragover', e => { e.preventDefault(); canvas.classList.add('dragover'); });
 dropzone.addEventListener('dragleave', () => canvas.classList.remove('dragover'));
 
 $('btnLoad').addEventListener('click', () => $('fileInput').click());
 
-$('btnPlay').addEventListener('click', togglePlay);
+$('btnPlay').addEventListener('click', () => togglePlay(pauseOffset));
 $('btnLoop').addEventListener('click', toggleLoop);
 $('btnResetZoom').addEventListener('click', () => {
-  zoom = cssW / duration || 1;
-  if (zoom < 1) zoom = 1;
+  zoom = cssW / duration || ZOOM_MIN;
+  if (zoom < ZOOM_MIN) zoom = ZOOM_MIN;
   viewStart = 0;
-  $('zoomCtrl').value = zoom;
-  $('zoomCtrl').max = Math.max(100, Math.ceil(zoom * 10));
+  updateZoomUI();
   draw();
 });
 $('speedCtrl').addEventListener('input', e => updateSpeed(e.target.value));
 $('zoomCtrl').addEventListener('input', e => {
-  const newZoom = parseFloat(e.target.value);
+  const newZoom = parseFloat(e.target.value) || ZOOM_MIN;
   const center = viewStart + (cssW / 2) / zoom;
   zoom = newZoom;
-  viewStart = clamp(center - (cssW / 2) / zoom, 0, Math.max(0, duration - cssW / zoom));
+  viewStart = clampViewStart(center - (cssW / 2) / zoom);
   draw();
 });
-scrub.addEventListener('input', e => { seek(parseFloat(e.target.value)); draw(); });
+scrub.addEventListener('input', e => { seek(parseFloat(e.target.value) || 0); draw(); });
 
 /* ---------- demo ---------- */
 $('btnDemo').addEventListener('click', async () => {
-  setStatus('Loading demo…');
+  setStatus('Loading demo\u2026');
   try {
     const r = await fetch('demo.ogg');
     if (!r.ok) throw new Error('local');
-    await loadArrayBuffer(await r.arrayBuffer(), 'King Oliver — Krooked Blues (1923)');
+    await loadArrayBuffer(await r.arrayBuffer(), 'King Oliver \u2014 Krooked Blues (1923)');
   } catch {
     setStatus('Demo failed. Drop your own file.');
   }
 });
 
-function setStatus(msg) { $('status').innerHTML = `<span class="pill">${msg}</span>`; }
+function setStatus(msg) {
+  const el = $('status');
+  el.textContent = '';
+  const span = document.createElement('span');
+  span.className = 'pill';
+  span.textContent = msg;
+  el.appendChild(span);
+}
 
 /* ---------- safety resets ---------- */
 window.addEventListener('blur', () => {
-  console.log('[evt] window blur -> forcing state=idle');
   state = 'idle';
   if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
 });
 document.addEventListener('mouseleave', () => {
-  console.log('[evt] document mouseleave -> forcing state=idle');
   state = 'idle';
   if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
 });
 
 /* ---------- keyboard ---------- */
 window.addEventListener('keydown', e => {
-  if (e.code === 'Space' && e.target.tagName !== 'INPUT' && e.target.tagName !== 'BUTTON' && e.target.tagName !== 'SELECT') {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON' || e.target.tagName === 'SELECT') return;
+  if (e.code === 'Space') {
     e.preventDefault();
-    togglePlayFromCue();
+    togglePlay(cuePoint);
+  } else if (e.code === 'KeyL') {
+    toggleLoop();
+  } else if (e.code === 'ArrowLeft') {
+    e.preventDefault();
+    seek(getCurrentTime() - (e.shiftKey ? 5 : 1));
+    draw();
+  } else if (e.code === 'ArrowRight') {
+    e.preventDefault();
+    seek(getCurrentTime() + (e.shiftKey ? 5 : 1));
+    draw();
   }
 });
 
@@ -585,8 +608,9 @@ const BUNDLED_TRACKS = [
 
 /* ---------- IndexedDB persistence ---------- */
 const DB_NAME = 'louper_truc_db';
-const DB_VER  = 1;
+const DB_VER  = 2;
 const STORE   = 'tracks';
+const META_STORE = 'meta';
 const LAST_KEY= '__last_track__';
 
 function openDB() {
@@ -595,6 +619,22 @@ function openDB() {
     req.onupgradeneeded = e => {
       const db = e.target.result;
       if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: 'id' });
+      if (!db.objectStoreNames.contains(META_STORE)) {
+        db.createObjectStore(META_STORE, { keyPath: 'key' });
+      }
+      if (e.oldVersion < 2 && db.objectStoreNames.contains(STORE)) {
+        const tx = e.target.transaction;
+        const trackStore = tx.objectStore(STORE);
+        const getReq = trackStore.get(LAST_KEY);
+        getReq.onsuccess = () => {
+          const rec = getReq.result;
+          if (rec && rec.lastId) {
+            const metaStore = tx.objectStore(META_STORE);
+            metaStore.put({ key: 'lastTrack', lastId: rec.lastId, name: rec.name, savedAt: rec.savedAt });
+            trackStore.delete(LAST_KEY);
+          }
+        };
+      }
     };
     req.onsuccess = e => resolve(e.target.result);
     req.onerror   = e => reject(e.target.error);
@@ -603,10 +643,9 @@ function openDB() {
 
 async function saveTrack(id, name, arrayBuffer) {
   const db = await openDB();
-  const tx = db.transaction(STORE, 'readwrite');
-  const s  = tx.objectStore(STORE);
-  s.put({ id, name, data: arrayBuffer, savedAt: Date.now() });
-  s.put({ id: LAST_KEY, lastId: id, name, savedAt: Date.now() });
+  const tx = db.transaction([STORE, META_STORE], 'readwrite');
+  tx.objectStore(STORE).put({ id, name, data: arrayBuffer, savedAt: Date.now() });
+  tx.objectStore(META_STORE).put({ key: 'lastTrack', lastId: id, name, savedAt: Date.now() });
   return new Promise((resolve, reject) => {
     tx.oncomplete = () => resolve();
     tx.onerror    = e => reject(e.target.error);
@@ -636,21 +675,53 @@ async function getSavedIds() {
 }
 
 async function getLastTrackMeta() {
-  return await loadTrack(LAST_KEY);
+  const db = await openDB();
+  const tx = db.transaction(META_STORE, 'readonly');
+  const s  = tx.objectStore(META_STORE);
+  return new Promise((resolve, reject) => {
+    const r = s.get('lastTrack');
+    r.onsuccess = () => resolve(r.result || null);
+    r.onerror   = e => reject(e.target.error);
+  });
 }
 
 /* ---------- track list UI ---------- */
-function populateSelects() {
-  const opts = [`<option disabled selected>Choose a track…</option>`];
-  opts.push(`<optgroup label="Built-in jazz">`);
-  BUNDLED_TRACKS.forEach(t => opts.push(`<option value="${t.id}">${t.name}</option>`));
-  opts.push(`</optgroup>`);
+function buildSelectContent(select, includeUser, userNames) {
+  const placeholder = document.createElement('option');
+  placeholder.disabled = true;
+  placeholder.selected = true;
+  placeholder.textContent = 'Choose a track\u2026';
+  select.appendChild(placeholder);
 
-  const builtIn = opts.join('');
-  $('trackSelect').innerHTML = builtIn;
-  $('trackSelectOverlay').innerHTML = builtIn;
+  const builtInGroup = document.createElement('optgroup');
+  builtInGroup.label = 'Built-in jazz';
+  BUNDLED_TRACKS.forEach(t => {
+    const opt = document.createElement('option');
+    opt.value = t.id;
+    opt.textContent = t.name;
+    builtInGroup.appendChild(opt);
+  });
+  select.appendChild(builtInGroup);
 
-  getSavedIds().then(async ids => {
+  if (includeUser && userNames && Object.keys(userNames).length) {
+    const userGroup = document.createElement('optgroup');
+    userGroup.label = 'Your uploads';
+    Object.entries(userNames).forEach(([id, name]) => {
+      const opt = document.createElement('option');
+      opt.value = id;
+      opt.textContent = name;
+      userGroup.appendChild(opt);
+    });
+    select.appendChild(userGroup);
+  }
+}
+
+async function populateSelects() {
+  const selects = [$('trackSelect'), $('trackSelectOverlay')];
+  selects.forEach(sel => { sel.textContent = ''; buildSelectContent(sel, false); });
+
+  try {
+    const ids = await getSavedIds();
     if (!ids.length) return;
     const db = await openDB();
     const tx = db.transaction(STORE, 'readonly');
@@ -662,43 +733,51 @@ function populateSelects() {
       r.onerror   = () => { names[id] = id; resolve(); };
     })));
 
-    const userOpts = ids.map(id => `<option value="${id}">${names[id]}</option>`).join('');
-    const full = builtIn + `<optgroup label="Your uploads">` + userOpts + `</optgroup>`;
-    [$('trackSelect'), $('trackSelectOverlay')].forEach(sel => {
+    selects.forEach(sel => {
       const prev = sel.value;
-      sel.innerHTML = full;
+      sel.textContent = '';
+      buildSelectContent(sel, true, names);
       if (prev) sel.value = prev;
     });
-  });
+  } catch (err) {
+    console.error('populateSelects error:', err);
+  }
 }
 
 async function selectTrack(id) {
   if (!id) return;
-  // Keep both selects in sync
   [$('trackSelect'), $('trackSelectOverlay')].forEach(s => s.value = id);
 
   const bundle = BUNDLED_TRACKS.find(t => t.id === id);
   if (bundle) {
-    setStatus('Loading ' + bundle.name + '…');
+    setStatus('Loading ' + bundle.name + '\u2026');
     try {
-      const r = await fetch(bundle.file);
-      if (!r.ok) throw new Error('fetch ' + bundle.file);
-      const ab = await r.arrayBuffer();
-      await loadArrayBuffer(ab, bundle.name);
-      await saveTrack(id, bundle.name, ab);
+      const existing = await loadTrack(id);
+      if (existing && existing.data) {
+        await loadArrayBuffer(existing.data, bundle.name);
+      } else {
+        const r = await fetch(bundle.file);
+        if (!r.ok) throw new Error('fetch ' + bundle.file);
+        const ab = await r.arrayBuffer();
+        await loadArrayBuffer(ab, bundle.name);
+        await saveTrack(id, bundle.name, ab);
+      }
     } catch (err) {
       setStatus('Failed to load ' + bundle.name + ': ' + err.message);
     }
     return;
   }
 
-  // User upload from IndexedDB
-  const rec = await loadTrack(id);
-  if (rec && rec.data) {
-    setStatus('Loading ' + rec.name + '…');
-    await loadArrayBuffer(rec.data, rec.name);
-  } else {
-    setStatus('Track not found in storage');
+  try {
+    const rec = await loadTrack(id);
+    if (rec && rec.data) {
+      setStatus('Loading ' + rec.name + '\u2026');
+      await loadArrayBuffer(rec.data, rec.name);
+    } else {
+      setStatus('Track not found in storage');
+    }
+  } catch (err) {
+    setStatus('Failed to load track: ' + (err.message || err));
   }
 }
 
@@ -706,10 +785,7 @@ async function selectTrack(id) {
 $('trackSelect').addEventListener('change', e => selectTrack(e.target.value));
 $('trackSelectOverlay').addEventListener('change', e => selectTrack(e.target.value));
 
-// Intercept file input to also persist
-$('fileInput').addEventListener('change', e => {
-  const f = e.target.files[0];
-  if (!f) return;
+function loadFile(f) {
   const r = new FileReader();
   r.onload = ev => {
     const ab = ev.target.result;
@@ -717,42 +793,41 @@ $('fileInput').addEventListener('change', e => {
     saveTrack(id, f.name, ab).then(() => populateSelects());
     loadArrayBuffer(ab, f.name);
   };
+  r.onerror = () => setStatus('Failed to read file');
   r.readAsArrayBuffer(f);
+}
+
+$('fileInput').addEventListener('change', e => {
+  const f = e.target.files[0];
+  if (f) loadFile(f);
 });
 
-// Intercept drop to also persist
 dropzone.addEventListener('drop', e => {
   e.preventDefault();
   canvas.classList.remove('dragover');
   const f = e.dataTransfer.files[0];
-  if (!f) return;
-  const r = new FileReader();
-  r.onload = ev => {
-    const ab = ev.target.result;
-    const id = 'user_' + encodeURIComponent(f.name) + '_' + Date.now();
-    saveTrack(id, f.name, ab).then(() => populateSelects());
-    loadArrayBuffer(ab, f.name);
-  };
-  r.readAsArrayBuffer(f);
+  if (f) loadFile(f);
 });
 
 /* ---------- auto-restore last track ---------- */
 async function restoreLast() {
-  const meta = await getLastTrackMeta();
-  if (!meta || !meta.lastId) return;
-  const id = meta.lastId;
-  // If it's a built-in, it will fetch; if user-uploaded, it will read from DB
-  const rec = await loadTrack(id);
-  if (rec && rec.data) {
-    await loadArrayBuffer(rec.data, rec.name || meta.name || 'Restored track');
-    [$('trackSelect'), $('trackSelectOverlay')].forEach(s => s.value = id);
-  } else if (BUNDLED_TRACKS.find(t => t.id === id)) {
-    await selectTrack(id);
+  try {
+    const meta = await getLastTrackMeta();
+    if (!meta || !meta.lastId) return;
+    const id = meta.lastId;
+    const rec = await loadTrack(id);
+    if (rec && rec.data) {
+      await loadArrayBuffer(rec.data, rec.name || meta.name || 'Restored track');
+      [$('trackSelect'), $('trackSelectOverlay')].forEach(s => s.value = id);
+    } else if (BUNDLED_TRACKS.find(t => t.id === id)) {
+      await selectTrack(id);
+    }
+  } catch (err) {
+    console.error('restoreLast error:', err);
   }
 }
 
 /* ---------- boot ---------- */
 resize();
-raf = requestAnimationFrame(tick);
 populateSelects();
 restoreLast();
