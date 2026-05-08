@@ -13,11 +13,13 @@ const WHEEL_ZOOM_SENSITIVITY = 0.002;
 const WHEEL_PAN_SENSITIVITY = 0.02;
 const DBLCLICK_ZOOM_FACTOR = 2;
 const INTERACTION_TIMEOUT_MS = 250;
-const PLAYBACK_END_THRESHOLD = 0.05;
 const AUTO_FOLLOW_MARGIN = 0.15;
+const SPEED_STEPS = [0.5, 0.6, 0.7, 0.8, 0.9, 1, 1.1];
 
 /* ---------- state ---------- */
 let audioCtx = null;
+let audioEl = null;
+let blobUrl = null;
 let buffer = null;
 let peaks = null;
 let sampleRate = 0;
@@ -30,8 +32,6 @@ let canvasRect = null;
 
 let isPlaying = false;
 let playSpeed = 1;
-let playStartTime = 0;
-let playOffset = 0;
 let pauseOffset = 0;
 
 let cuePoint = 0;
@@ -46,9 +46,6 @@ let longPressTimer = null;
 let lastInteractionTime = 0;
 const autoFollow = true;
 let raf = 0;
-
-let sourceNode = null;
-let stoppingManually = false;
 
 /* ---------- DOM ---------- */
 const $ = id => document.getElementById(id);
@@ -94,64 +91,47 @@ window.addEventListener('resize', resize);
 function initAudio() {
   if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   if (audioCtx.state === 'suspended') audioCtx.resume();
+  if (!audioEl) {
+    audioEl = $('audioPlayer');
+    if ('preservesPitch' in audioEl) audioEl.preservesPitch = true;
+    else if ('webkitPreservesPitch' in audioEl) audioEl.webkitPreservesPitch = true;
+    else if ('mozPreservesPitch' in audioEl) audioEl.mozPreservesPitch = true;
+    audioEl.addEventListener('ended', () => {
+      isPlaying = false;
+      pauseOffset = 0;
+      audioEl.currentTime = 0;
+      updatePlayBtn();
+      cancelRaf();
+      draw();
+    });
+  }
 }
 
 function getCurrentTime() {
-  if (!isPlaying) return pauseOffset;
-  return playOffset + (audioCtx.currentTime - playStartTime) * playSpeed;
-}
-
-function playInternal(offsetSec) {
-  if (!buffer || !audioCtx) return;
-  stopInternal();
-  sourceNode = audioCtx.createBufferSource();
-  sourceNode.buffer = buffer;
-  sourceNode.playbackRate.value = playSpeed;
-  sourceNode.connect(audioCtx.destination);
-  playStartTime = audioCtx.currentTime;
-  playOffset = offsetSec;
-  sourceNode.start(0, offsetSec);
-  sourceNode.onended = () => {
-    if (stoppingManually) { stoppingManually = false; return; }
-    if (isPlaying && getCurrentTime() >= duration - PLAYBACK_END_THRESHOLD) {
-      isPlaying = false;
-      pauseOffset = 0;
-      updatePlayBtn();
-      cancelRaf();
-    }
-  };
-}
-
-function stopInternal() {
-  if (sourceNode) {
-    stoppingManually = true;
-    try { sourceNode.stop(); } catch (_) { /* may throw if already stopped */ }
-    try { sourceNode.disconnect(); } catch (_) { /* may throw if already disconnected */ }
-    sourceNode = null;
-  }
+  return audioEl ? audioEl.currentTime : pauseOffset;
 }
 
 function seek(t) {
   t = clamp(t, 0, duration);
-  if (isPlaying) {
-    stopInternal();
-    playInternal(t);
-  } else {
-    pauseOffset = t;
-  }
+  if (audioEl) audioEl.currentTime = t;
+  if (!isPlaying) pauseOffset = t;
 }
 
 function togglePlay(startTime) {
   initAudio();
   if (isPlaying) {
-    pauseOffset = getCurrentTime();
-    stopInternal();
+    audioEl.pause();
     isPlaying = false;
+    pauseOffset = audioEl.currentTime;
     cancelRaf();
   } else {
-    let t = startTime;
-    if (loopOn && (t < loopStart || t >= loopEnd)) t = loopStart;
-    playInternal(t);
+    if (loopOn && (startTime < loopStart || startTime >= loopEnd)) {
+      audioEl.currentTime = loopStart;
+    } else {
+      audioEl.currentTime = startTime;
+    }
+    audioEl.playbackRate = playSpeed;
+    audioEl.play().catch(() => {});
     isPlaying = true;
     lastInteractionTime = 0;
     startRaf();
@@ -163,12 +143,9 @@ function updatePlayBtn() { $('btnPlay').textContent = isPlaying ? 'Pause' : 'Pla
 
 function updateSpeed(val) {
   playSpeed = parseFloat(val) || 1;
-  $('speedVal').textContent = playSpeed.toFixed(2) + '\u00d7';
-  if (isPlaying) {
-    const t = getCurrentTime();
-    stopInternal();
-    playInternal(t);
-  }
+  if (audioEl) audioEl.playbackRate = playSpeed;
+  const btns = document.querySelectorAll('#speedBtns button');
+  btns.forEach(b => b.classList.toggle('active', parseFloat(b.dataset.speed) === playSpeed));
 }
 
 function toggleLoop() {
@@ -184,7 +161,7 @@ function tick() {
   const interacting = (now - lastInteractionTime) < INTERACTION_TIMEOUT_MS;
   const t = getCurrentTime();
   if (loopOn && t >= loopEnd - (1 / sampleRate)) {
-    seek(loopStart);
+    audioEl.currentTime = loopStart;
   }
   if (!interacting && autoFollow && zoom > cssW / duration) {
     const margin = cssW * AUTO_FOLLOW_MARGIN;
@@ -220,6 +197,10 @@ async function loadArrayBuffer(ab, name) {
     buffer = decoded;
     sampleRate = buffer.sampleRate;
     duration = buffer.duration;
+    if (blobUrl) URL.revokeObjectURL(blobUrl);
+    blobUrl = URL.createObjectURL(new Blob([ab]));
+    audioEl.src = blobUrl;
+    audioEl.playbackRate = playSpeed;
     computePeaks();
     cuePoint = 0;
     loopStart = 0;
@@ -518,7 +499,7 @@ dropzone.addEventListener('dragleave', () => canvas.classList.remove('dragover')
 
 $('btnLoad').addEventListener('click', () => $('fileInput').click());
 
-$('btnPlay').addEventListener('click', () => togglePlay(pauseOffset));
+$('btnPlay').addEventListener('click', () => togglePlay(audioEl ? audioEl.currentTime : pauseOffset));
 $('btnLoop').addEventListener('click', toggleLoop);
 $('btnResetZoom').addEventListener('click', () => {
   zoom = cssW / duration || ZOOM_MIN;
@@ -527,7 +508,9 @@ $('btnResetZoom').addEventListener('click', () => {
   updateZoomUI();
   draw();
 });
-$('speedCtrl').addEventListener('input', e => updateSpeed(e.target.value));
+document.querySelectorAll('#speedBtns button').forEach(btn => {
+  btn.addEventListener('click', () => updateSpeed(btn.dataset.speed));
+});
 $('zoomCtrl').addEventListener('input', e => {
   const newZoom = parseFloat(e.target.value) || ZOOM_MIN;
   const center = viewStart + (cssW / 2) / zoom;

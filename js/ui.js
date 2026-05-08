@@ -2,8 +2,15 @@
 import { s, clampViewStart, ZOOM_MIN } from './state.js';
 import { draw, updateZoomUI, init as initWaveform, resizeCanvases } from './waveform.js';
 import { init as initInteractions } from './interactions.js';
-import { togglePlay, updateSpeed, toggleLoop, seek } from './audio.js';
-import { selectTrack, populateSelects, loadFile, setStatus, restoreLast, loadArrayBuffer } from './catalog.js';
+import { initAudio, togglePlay, updateSpeed, toggleLoop, seek } from './audio.js';
+import {
+  selectTrack,
+  populateSelects,
+  loadFile,
+  setStatus,
+  restoreLast,
+  loadArrayBuffer,
+} from './catalog.js';
 
 function resize() {
   s.canvasRect = document.getElementById('dropzone').getBoundingClientRect();
@@ -15,6 +22,7 @@ function resize() {
 }
 
 export function boot() {
+  initAudio();
   const canvas = document.getElementById('waveform');
   const dropzone = document.getElementById('dropzone');
 
@@ -24,8 +32,12 @@ export function boot() {
 
   initInteractions(canvas);
 
-  document.getElementById('btnLoad').addEventListener('click', () => document.getElementById('fileInput').click());
-  document.getElementById('btnPlay').addEventListener('click', () => togglePlay(s.pauseOffset));
+  document
+    .getElementById('btnLoad')
+    .addEventListener('click', () => document.getElementById('fileInput').click());
+  document
+    .getElementById('btnPlay')
+    .addEventListener('click', () => togglePlay(s.audioEl ? s.audioEl.currentTime : s.pauseOffset));
   document.getElementById('btnLoop').addEventListener('click', toggleLoop);
   document.getElementById('btnResetZoom').addEventListener('click', () => {
     s.zoom = s.cssW / s.duration || ZOOM_MIN;
@@ -34,29 +46,34 @@ export function boot() {
     updateZoomUI();
     draw();
   });
-  document.getElementById('speedCtrl').addEventListener('input', e => updateSpeed(e.target.value));
-  document.getElementById('zoomCtrl').addEventListener('input', e => {
+  document.querySelectorAll('#speedBtns button').forEach((btn) => {
+    btn.addEventListener('click', () => updateSpeed(btn.dataset.speed));
+  });
+  document.getElementById('zoomCtrl').addEventListener('input', (e) => {
     const newZoom = parseFloat(e.target.value) || ZOOM_MIN;
-    const center = s.viewStart + (s.cssW / 2) / s.zoom;
+    const center = s.viewStart + s.cssW / 2 / s.zoom;
     s.zoom = newZoom;
-    s.viewStart = clampViewStart(center - (s.cssW / 2) / s.zoom);
+    s.viewStart = clampViewStart(center - s.cssW / 2 / s.zoom);
     draw();
   });
-  document.getElementById('scrub').addEventListener('input', e => {
+  document.getElementById('scrub').addEventListener('input', (e) => {
     seek(parseFloat(e.target.value) || 0);
     draw();
   });
 
-  dropzone.addEventListener('dragover', e => { e.preventDefault(); canvas.classList.add('dragover'); });
+  dropzone.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    canvas.classList.add('dragover');
+  });
   dropzone.addEventListener('dragleave', () => canvas.classList.remove('dragover'));
-  dropzone.addEventListener('drop', e => {
+  dropzone.addEventListener('drop', (e) => {
     e.preventDefault();
     canvas.classList.remove('dragover');
     const f = e.dataTransfer.files[0];
     if (f) loadFile(f);
   });
 
-  document.getElementById('fileInput').addEventListener('change', e => {
+  document.getElementById('fileInput').addEventListener('change', (e) => {
     const f = e.target.files[0];
     if (f) loadFile(f);
   });
@@ -72,8 +89,12 @@ export function boot() {
     }
   });
 
-  document.getElementById('trackSelect').addEventListener('change', e => selectTrack(e.target.value));
-  document.getElementById('trackSelectOverlay').addEventListener('change', e => selectTrack(e.target.value));
+  document
+    .getElementById('trackSelect')
+    .addEventListener('change', (e) => selectTrack(e.target.value));
+  document
+    .getElementById('trackSelectOverlay')
+    .addEventListener('change', (e) => selectTrack(e.target.value));
 
   populateSelects();
   restoreLast();

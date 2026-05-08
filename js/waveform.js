@@ -1,7 +1,6 @@
 /* louper-truc — waveform renderer */
-import {
-  s, clamp, timeToX, BLOCK,
-} from './state.js';
+import { s, clamp, timeToX, BLOCK } from './state.js';
+import { getCurrentTime } from './audio.js';
 
 const WAVEFORM_BG = '#0e1013';
 const WAVEFORM_FG = '#6b7a8f';
@@ -38,7 +37,10 @@ export function draw() {
   ctx.setTransform(s.dpr, 0, 0, s.dpr, 0, 0);
   ctx.fillStyle = WAVEFORM_BG;
   ctx.fillRect(0, 0, s.cssW, s.cssH);
-  if (!s.peaks || !s.duration) { drawOverlay(); return; }
+  if (!s.peaks || !s.duration) {
+    drawOverlay();
+    return;
+  }
 
   const yMid = s.cssH / 2;
   const yScale = s.cssH * 0.45;
@@ -68,8 +70,10 @@ export function draw() {
     ctx.strokeStyle = s.loopOn ? LOOP_STROKE_ON : LOOP_STROKE_OFF;
     ctx.lineWidth = 1.5;
     ctx.beginPath();
-    ctx.moveTo(sx, 0); ctx.lineTo(sx, s.cssH);
-    ctx.moveTo(ex, 0); ctx.lineTo(ex, s.cssH);
+    ctx.moveTo(sx, 0);
+    ctx.lineTo(sx, s.cssH);
+    ctx.moveTo(ex, 0);
+    ctx.lineTo(ex, s.cssH);
     ctx.stroke();
   }
 
@@ -87,7 +91,8 @@ export function drawOverlay() {
   overlayCtx.lineWidth = 1.5;
   overlayCtx.setLineDash([4, 4]);
   overlayCtx.beginPath();
-  overlayCtx.moveTo(cx, 0); overlayCtx.lineTo(cx, s.cssH);
+  overlayCtx.moveTo(cx, 0);
+  overlayCtx.lineTo(cx, s.cssH);
   overlayCtx.stroke();
   overlayCtx.setLineDash([]);
 
@@ -96,13 +101,9 @@ export function drawOverlay() {
   overlayCtx.strokeStyle = PLAYHEAD_STROKE;
   overlayCtx.lineWidth = 2;
   overlayCtx.beginPath();
-  overlayCtx.moveTo(px, 0); overlayCtx.lineTo(px, s.cssH);
+  overlayCtx.moveTo(px, 0);
+  overlayCtx.lineTo(px, s.cssH);
   overlayCtx.stroke();
-}
-
-function getCurrentTime() {
-  if (!s.isPlaying) return s.pauseOffset;
-  return s.playOffset + (s.audioCtx.currentTime - s.playStartTime) * s.playSpeed;
 }
 
 export function computePeaks() {
@@ -111,7 +112,8 @@ export function computePeaks() {
   const channels = s.buffer.numberOfChannels;
   s.peaks = new Float32Array(blocks * 2);
   for (let i = 0; i < blocks; i++) {
-    let min = 1, max = -1;
+    let min = 1,
+      max = -1;
     const a = i * BLOCK;
     const b = Math.min(a + BLOCK, n);
     for (let c = 0; c < channels; c++) {

@@ -7,7 +7,8 @@ function computePeaks(buffer) {
   const channels = buffer.numberOfChannels;
   const peaks = new Float32Array(blocks * 2);
   for (let i = 0; i < blocks; i++) {
-    let min = 1, max = -1;
+    let min = 1,
+      max = -1;
     const a = i * BLOCK;
     const b = Math.min(a + BLOCK, n);
     for (let c = 0; c < channels; c++) {
