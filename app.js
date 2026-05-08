@@ -548,6 +548,14 @@ document.addEventListener('mouseleave', () => {
   if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
 });
 
+/* ---------- keyboard ---------- */
+window.addEventListener('keydown', e => {
+  if (e.code === 'Space' && e.target.tagName !== 'INPUT' && e.target.tagName !== 'BUTTON') {
+    e.preventDefault();
+    togglePlay();
+  }
+});
+
 /* ---------- boot ---------- */
 resize();
 raf = requestAnimationFrame(tick);
