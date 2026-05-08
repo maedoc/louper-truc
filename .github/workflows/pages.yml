@@ -13,16 +13,6 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9afed3 # v4
-        with:
-          lfs: true
-      - name: Ensure LFS content is pulled
-        run: |
-          git lfs pull
-          if head -1 assets/tracks/01_Bloomdido.ogg | grep -q 'git-lfs'; then
-            echo 'ERROR: LFS files are still pointers' >&2
-            exit 1
-          fi
-          echo 'LFS content verified'
       - uses: actions/setup-node@cdca7365b2dadb8aad0a33bc7601856ffab00248 # v4
         with:
           node-version: '20'

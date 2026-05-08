@@ -2,7 +2,7 @@
 import {
   s, clamp, clampViewStart, xToTime,
   DRAG_THRESHOLD_MOUSE, DRAG_THRESHOLD_TOUCH, LONG_PRESS_MS,
-  WHEEL_ZOOM_SENSITIVITY, DBLCLICK_ZOOM_FACTOR, ZOOM_MIN, ZOOM_MAX, LOOP_MIN_SEC,
+  WHEEL_ZOOM_SENSITIVITY, WHEEL_PAN_SENSITIVITY, DBLCLICK_ZOOM_FACTOR, ZOOM_MIN, ZOOM_MAX, LOOP_MIN_SEC,
 } from './state.js';
 import { draw, updateZoomUI } from './waveform.js';
 import { seek, togglePlay, toggleLoop, getCurrentTime } from './audio.js';
@@ -11,7 +11,7 @@ const VALID_STATES = new Set(['idle', 'idle-down', 'panning', 'selecting', 'pinc
 
 const TRANSITIONS = {
   idle:        new Set(['mousedown', 'touchstart', 'blur']),
-  'idle-down': new Set(['mousemove', 'mouseup', 'touchmove', 'touchend', 'longpress', 'shift_mousedown', 'blur']),
+  'idle-down': new Set(['mousemove', 'mouseup', 'touchmove', 'touchend', 'longpress', 'blur']),
   panning:     new Set(['mousemove', 'mouseup', 'touchmove', 'touchend', 'blur']),
   selecting:   new Set(['mousemove', 'mouseup', 'touchmove', 'touchend', 'blur']),
   pinching:    new Set(['touchmove', 'touchend', 'blur']),
@@ -27,9 +27,6 @@ function transition(event) {
     case 'mousedown':
     case 'touchstart':
       s.interaction = 'idle-down';
-      break;
-    case 'shift_mousedown':
-      s.interaction = 'selecting';
       break;
     case 'mousemove':
     case 'touchmove':
@@ -60,20 +57,18 @@ function finalizeSelection() {
 const touches = new Map();
 
 export function init(canvas) {
-  /* mouse */
+  /* mouse: left-click = loop selection, middle/right = pan */
   canvas.addEventListener('mousedown', e => {
     const x = e.clientX - s.canvasRect.left;
     s.pointer = { x0: x, time0: performance.now(), origView: s.viewStart };
-    if (e.shiftKey) {
-      transition('shift_mousedown');
-      const ti = xToTime(x);
-      s.loopStart = ti; s.loopEnd = ti;
-    } else if (e.button === 1 || e.button === 2) {
-      transition('mousedown');
+    if (e.button === 1 || e.button === 2) {
       s.interaction = 'panning';
       e.preventDefault();
     } else {
-      transition('mousedown');
+      s.interaction = 'selecting';
+      const ti = xToTime(x);
+      s.loopStart = ti; s.loopEnd = ti;
+      draw();
     }
     s.lastInteractionTime = performance.now();
   });
@@ -90,38 +85,40 @@ export function init(canvas) {
       updateSelection(x);
       draw();
       s.lastInteractionTime = performance.now();
-    } else if (s.interaction === 'idle-down') {
-      if (Math.abs(dx) > DRAG_THRESHOLD_MOUSE) {
-        s.pointer.origView = s.viewStart;
-        transition('mousemove');
-      }
-      s.lastInteractionTime = performance.now();
     }
   });
 
   window.addEventListener('mouseup', e => {
     if (s.interaction === 'idle') return;
-    if (s.interaction === 'idle-down') {
-      const x = e.clientX - s.canvasRect.left;
-      s.cuePoint = clamp(xToTime(x), 0, s.duration);
-      seek(s.cuePoint);
-      draw();
-    } else if (s.interaction === 'selecting') {
-      finalizeSelection();
+    if (s.interaction === 'selecting') {
+      if (Math.abs(e.clientX - s.canvasRect.left - s.pointer.x0) <= DRAG_THRESHOLD_MOUSE) {
+        s.cuePoint = clamp(xToTime(e.clientX - s.canvasRect.left), 0, s.duration);
+        seek(s.cuePoint);
+        s.loopStart = 0; s.loopEnd = 0;
+        if (s.loopOn) toggleLoop();
+      } else {
+        finalizeSelection();
+      }
     }
-    transition('mouseup');
+    s.interaction = 'idle';
+    draw();
     s.lastInteractionTime = performance.now();
   });
 
-  /* wheel zoom */
+  /* scroll: pan by default, shift+scroll = zoom */
   canvas.addEventListener('wheel', e => {
     e.preventDefault();
-    const x = e.clientX - s.canvasRect.left;
-    const t = xToTime(x);
-    const factor = Math.exp(-e.deltaY * WHEEL_ZOOM_SENSITIVITY);
-    s.zoom = clamp(s.zoom * factor, ZOOM_MIN, ZOOM_MAX);
-    s.viewStart = clampViewStart(t - x / s.zoom);
-    updateZoomUI();
+    if (e.shiftKey) {
+      const x = e.clientX - s.canvasRect.left;
+      const t = xToTime(x);
+      const factor = Math.exp(-e.deltaY * WHEEL_ZOOM_SENSITIVITY);
+      s.zoom = clamp(s.zoom * factor, ZOOM_MIN, ZOOM_MAX);
+      s.viewStart = clampViewStart(t - x / s.zoom);
+      updateZoomUI();
+    } else {
+      const dt = e.deltaY * WHEEL_PAN_SENSITIVITY;
+      s.viewStart = clampViewStart(s.viewStart + dt);
+    }
     draw();
     s.lastInteractionTime = performance.now();
   }, { passive: false });
@@ -136,7 +133,7 @@ export function init(canvas) {
     draw();
   });
 
-  /* touch */
+  /* touch — unchanged: drag=pan, long-press=loop, pinch=zoom */
   canvas.addEventListener('touchstart', e => {
     e.preventDefault();
     if (e.touches.length === 2) {

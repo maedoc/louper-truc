@@ -10,6 +10,7 @@ const DRAG_THRESHOLD_MOUSE = 4;
 const DRAG_THRESHOLD_TOUCH = 8;
 const LONG_PRESS_MS = 450;
 const WHEEL_ZOOM_SENSITIVITY = 0.002;
+const WHEEL_PAN_SENSITIVITY = 0.02;
 const DBLCLICK_ZOOM_FACTOR = 2;
 const INTERACTION_TIMEOUT_MS = 250;
 const PLAYBACK_END_THRESHOLD = 0.05;
@@ -338,19 +339,18 @@ function finalizeSelection() {
   else if (!loopOn) toggleLoop();
 }
 
-/* mouse */
+/* mouse: left-click = loop selection, middle/right = pan */
 canvas.addEventListener('mousedown', e => {
   const x = e.clientX - canvasRect.left;
   pointer = { x0: x, time0: performance.now(), origView: viewStart };
-  if (e.shiftKey) {
-    state = 'selecting';
-    const ti = xToTime(x);
-    loopStart = ti; loopEnd = ti;
-  } else if (e.button === 1 || e.button === 2) {
+  if (e.button === 1 || e.button === 2) {
     state = 'panning';
     e.preventDefault();
   } else {
-    state = 'idle-down';
+    state = 'selecting';
+    const ti = xToTime(x);
+    loopStart = ti; loopEnd = ti;
+    draw();
   }
   lastInteractionTime = performance.now();
 });
@@ -367,35 +367,40 @@ window.addEventListener('mousemove', e => {
     updateSelection(x);
     draw();
     lastInteractionTime = performance.now();
-  } else if (state === 'idle-down') {
-    if (Math.abs(dx) > DRAG_THRESHOLD_MOUSE) { state = 'panning'; pointer.origView = viewStart; }
-    lastInteractionTime = performance.now();
   }
 });
 
 window.addEventListener('mouseup', e => {
   if (state === 'idle') return;
-  if (state === 'idle-down') {
-    const x = e.clientX - canvasRect.left;
-    cuePoint = clamp(xToTime(x), 0, duration);
-    seek(cuePoint);
-    draw();
-  } else if (state === 'selecting') {
-    finalizeSelection();
+  if (state === 'selecting') {
+    if (Math.abs(e.clientX - canvasRect.left - pointer.x0) <= DRAG_THRESHOLD_MOUSE) {
+      cuePoint = clamp(xToTime(e.clientX - canvasRect.left), 0, duration);
+      seek(cuePoint);
+      loopStart = 0; loopEnd = 0;
+      if (loopOn) toggleLoop();
+    } else {
+      finalizeSelection();
+    }
   }
   state = 'idle';
+  draw();
   lastInteractionTime = performance.now();
 });
 
-/* wheel zoom */
+/* scroll: pan by default, shift+scroll = zoom */
 canvas.addEventListener('wheel', e => {
   e.preventDefault();
-  const x = e.clientX - canvasRect.left;
-  const t = xToTime(x);
-  const factor = Math.exp(-e.deltaY * WHEEL_ZOOM_SENSITIVITY);
-  zoom = clamp(zoom * factor, ZOOM_MIN, ZOOM_MAX);
-  viewStart = clampViewStart(t - x / zoom);
-  updateZoomUI();
+  if (e.shiftKey) {
+    const x = e.clientX - canvasRect.left;
+    const t = xToTime(x);
+    const factor = Math.exp(-e.deltaY * WHEEL_ZOOM_SENSITIVITY);
+    zoom = clamp(zoom * factor, ZOOM_MIN, ZOOM_MAX);
+    viewStart = clampViewStart(t - x / zoom);
+    updateZoomUI();
+  } else {
+    const dt = e.deltaY * WHEEL_PAN_SENSITIVITY;
+    viewStart = clampViewStart(viewStart + dt);
+  }
   draw();
   lastInteractionTime = performance.now();
 }, { passive: false });

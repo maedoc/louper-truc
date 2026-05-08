@@ -7,6 +7,7 @@ export const DRAG_THRESHOLD_MOUSE = 4;
 export const DRAG_THRESHOLD_TOUCH = 8;
 export const LONG_PRESS_MS = 450;
 export const WHEEL_ZOOM_SENSITIVITY = 0.002;
+export const WHEEL_PAN_SENSITIVITY = 0.02;
 export const DBLCLICK_ZOOM_FACTOR = 2;
 export const INTERACTION_TIMEOUT_MS = 250;
 export const PLAYBACK_END_THRESHOLD = 0.05;
