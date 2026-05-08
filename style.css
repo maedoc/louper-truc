@@ -63,6 +63,7 @@ h1 { font-size: 14px; letter-spacing: 0.08em; text-transform: uppercase; color: 
 .build-info {
   position: absolute; bottom: 10px; right: 14px; z-index: 3;
   font-size: 11px; color: #4b5563;
+  pointer-events: none;
 }
-.build-info a { color: #4b5563; text-decoration: none; }
+.build-info a { color: #4b5563; text-decoration: none; pointer-events: auto; }
 .build-info a:hover { color: #9aa3b2; text-decoration: underline; }

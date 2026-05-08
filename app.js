@@ -133,6 +133,22 @@ function togglePlay() {
   updatePlayBtn();
 }
 
+function togglePlayFromCue() {
+  initAudio();
+  if (isPlaying) {
+    pauseOffset = getCurrentTime();
+    stopInternal();
+    isPlaying = false;
+  } else {
+    let t = cuePoint;
+    if (loopOn && (t < loopStart || t >= loopEnd)) t = loopStart;
+    playInternal(t);
+    isPlaying = true;
+    lastInteractionTime = 0;
+  }
+  updatePlayBtn();
+}
+
 function updatePlayBtn() { $('btnPlay').textContent = isPlaying ? 'Pause' : 'Play'; }
 
 function updateSpeed(val) {
@@ -552,7 +568,7 @@ document.addEventListener('mouseleave', () => {
 window.addEventListener('keydown', e => {
   if (e.code === 'Space' && e.target.tagName !== 'INPUT' && e.target.tagName !== 'BUTTON') {
     e.preventDefault();
-    togglePlay();
+    togglePlayFromCue();
   }
 });
 
