@@ -13,6 +13,10 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@v4
+      - name: Stamp build info into HTML
+        run: |
+          sed -i 's|{{GITHUB_RUN_ID}}|'$GITHUB_RUN_ID'|g' index.html
+          sed -i 's|{{GITHUB_SHA}}|'${GITHUB_SHA:0:7}'|g' index.html
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:

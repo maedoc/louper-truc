@@ -57,3 +57,10 @@ h1 { font-size: 14px; letter-spacing: 0.08em; text-transform: uppercase; color: 
 
 #waveform.dragover { outline: 2px dashed #3c4452; outline-offset: -4px; }
 #waveform.selecting { cursor: ew-resize; }
+
+.build-info {
+  position: absolute; bottom: 10px; right: 14px; z-index: 3;
+  font-size: 11px; color: #4b5563;
+}
+.build-info a { color: #4b5563; text-decoration: none; }
+.build-info a:hover { color: #9aa3b2; text-decoration: underline; }
