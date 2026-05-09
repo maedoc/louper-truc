@@ -98,4 +98,21 @@ export function boot() {
 
   populateSelects();
   restoreLast();
+  initBuildLink();
+}
+
+function initBuildLink() {
+  const a = document.getElementById('buildLink');
+  if (!a || a.textContent.trim() !== 'dev') return;
+  fetch('https://api.github.com/repos/maedoc/louper-truc/commits/main', {
+    headers: { Accept: 'application/vnd.github.v3+json' },
+  })
+    .then((r) => (r.ok ? r.json() : null))
+    .then((d) => {
+      if (!d) return;
+      const sha7 = d.sha.slice(0, 7);
+      a.textContent = sha7;
+      a.href = d.html_url;
+    })
+    .catch(() => {});
 }

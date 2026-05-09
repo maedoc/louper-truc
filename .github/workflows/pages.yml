@@ -3,14 +3,10 @@ on:
   push:
     branches: [main]
 jobs:
-  deploy:
-    environment:
-      name: github-pages
+  build:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      pages: write
-      id-token: write
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9afed3 # v4
       - uses: actions/setup-node@cdca7365b2dadb8aad0a33bc7601856ffab00248 # v4
@@ -31,8 +27,8 @@ jobs:
           with open('index.html') as f:
             content = f.read()
           before = content
-          content = content.replace('{{GITHUB_RUN_ID}}', run_id)
-          content = content.replace('{{GITHUB_SHA}}', sha7)
+          content = content.replace('__GITHUB_RUN_ID__', run_id)
+          content = content.replace('__GITHUB_SHA__', sha7)
           content = content.replace('style.css', f'style.css?sha={sha7}')
           content = content.replace('js/main.js', f'js/main.js?sha={sha7}')
           if content == before:
@@ -49,4 +45,15 @@ jobs:
       - uses: actions/upload-pages-artifact@56afc609e7420260d3c00010e1b1d4f11c19f535 # v3
         with:
           path: .
-      - uses: actions/deploy-pages@d6db91d4bb6e40623d6fa32a6403c3e5a2a5e0fd # v4
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    permissions:
+      pages: write
+      id-token: write
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@d6db91d4bb6e40623d6fa32a6403c3e5a2a5e0fd # v4

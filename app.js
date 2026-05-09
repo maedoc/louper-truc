@@ -183,6 +183,18 @@ function startRaf() { if (!raf) raf = requestAnimationFrame(tick); }
 function cancelRaf() { if (raf) { cancelAnimationFrame(raf); raf = 0; } }
 
 /* ---------- load ---------- */
+function guessMime(ab) {
+  if (ab.byteLength < 4) return '';
+  const v = new DataView(ab);
+  const b0 = v.getUint8(0), b1 = v.getUint8(1), b2 = v.getUint8(2), b3 = v.getUint8(3);
+  if (b0 === 0x4f && b1 === 0x67 && b2 === 0x67 && b3 === 0x53) return 'audio/ogg';
+  if (b0 === 0x49 && b1 === 0x44 && b2 === 0x33) return 'audio/mpeg';
+  if (b0 === 0xff && (b1 & 0xe0) === 0xe0) return 'audio/mpeg';
+  if (b0 === 0x52 && b1 === 0x49 && b2 === 0x46 && b3 === 0x46) return 'audio/wav';
+  if (b0 === 0x66 && b1 === 0x4c && b2 === 0x61 && b3 === 0x43) return 'audio/flac';
+  return '';
+}
+
 async function loadArrayBuffer(ab, name) {
   initAudio();
   if (ab.byteLength < 200) {
@@ -198,7 +210,8 @@ async function loadArrayBuffer(ab, name) {
     sampleRate = buffer.sampleRate;
     duration = buffer.duration;
     if (blobUrl) URL.revokeObjectURL(blobUrl);
-    blobUrl = URL.createObjectURL(new Blob([ab]));
+    const mime = guessMime(ab);
+    blobUrl = URL.createObjectURL(new Blob([ab], mime ? { type: mime } : {}));
     audioEl.src = blobUrl;
     audioEl.playbackRate = playSpeed;
     computePeaks();
