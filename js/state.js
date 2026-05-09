@@ -5,6 +5,7 @@ export const ZOOM_MAX = 2000;
 export const LOOP_MIN_SEC = 0.05;
 export const DRAG_THRESHOLD_MOUSE = 4;
 export const DRAG_THRESHOLD_TOUCH = 8;
+export const TAP_MAX_MS = 300;
 export const LONG_PRESS_MS = 450;
 export const WHEEL_ZOOM_SENSITIVITY = 0.002;
 export const WHEEL_PAN_SENSITIVITY = 0.02;

@@ -6,6 +6,7 @@ import {
   xToTime,
   DRAG_THRESHOLD_MOUSE,
   DRAG_THRESHOLD_TOUCH,
+  TAP_MAX_MS,
   LONG_PRESS_MS,
   WHEEL_ZOOM_SENSITIVITY,
   WHEEL_PAN_SENSITIVITY,
@@ -182,7 +183,7 @@ export function init(canvas) {
         const t = e.touches[0];
         const x = t.clientX - s.canvasRect.left;
         const y = t.clientY - s.canvasRect.top;
-        touches.set(t.identifier, { x0: x, y0: y, origView: s.viewStart });
+        touches.set(t.identifier, { x0: x, y0: y, origView: s.viewStart, time0: performance.now() });
         transition('touchstart');
         s.longPressTimer = setTimeout(() => {
           transition('longpress');
@@ -252,20 +253,25 @@ export function init(canvas) {
       s.longPressTimer = null;
     }
     if (e.touches.length === 0) {
-      if (s.interaction === 'idle-down') {
-        const ct = e.changedTouches[0];
-        const x = ct.clientX - s.canvasRect.left;
+      const ct = e.changedTouches[0];
+      const x = ct.clientX - s.canvasRect.left;
+      const touch = touches.get(ct.identifier);
+      const dx = touch ? Math.abs(x - touch.x0) : Infinity;
+      const dt = touch ? performance.now() - touch.time0 : Infinity;
+      const isTap = dt < TAP_MAX_MS && dx < DRAG_THRESHOLD_TOUCH * 2;
+      if (isTap && s.interaction !== 'selecting') {
         s.cuePoint = clamp(xToTime(x), 0, s.duration);
         seek(s.cuePoint);
         draw();
       } else if (s.interaction === 'selecting') {
         finalizeSelection();
       }
+      touches.delete(ct.identifier);
       transition('touchend');
     } else if (e.touches.length === 1 && s.interaction === 'pinching') {
       const t = e.touches[0];
       const x = t.clientX - s.canvasRect.left;
-      touches.set(t.identifier, { x0: x, origView: s.viewStart });
+        touches.set(t.identifier, { x0: x, origView: s.viewStart, time0: performance.now() });
       s.interaction = 'panning';
     }
     s.lastInteractionTime = performance.now();
