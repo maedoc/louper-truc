@@ -12,6 +12,33 @@ import {
   loadArrayBuffer,
 } from './catalog.js';
 
+const THEME_KEY = 'louper-theme';
+
+function getSystemTheme() {
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+
+function applyTheme(theme) {
+  document.documentElement.dataset.theme = theme;
+  localStorage.setItem(THEME_KEY, theme);
+  const btn = document.getElementById('btnTheme');
+  if (btn) btn.textContent = theme === 'dark' ? '\u2600' : '\u263E';
+  draw();
+}
+
+function initTheme() {
+  const stored = localStorage.getItem(THEME_KEY);
+  const theme = stored || getSystemTheme();
+  applyTheme(theme);
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
+    if (!localStorage.getItem(THEME_KEY)) applyTheme(e.matches ? 'dark' : 'light');
+  });
+  document.getElementById('btnTheme').addEventListener('click', () => {
+    const current = document.documentElement.dataset.theme;
+    applyTheme(current === 'dark' ? 'light' : 'dark');
+  });
+}
+
 function resize() {
   s.canvasRect = document.getElementById('dropzone').getBoundingClientRect();
   s.cssW = s.canvasRect.width;
@@ -99,20 +126,15 @@ export function boot() {
   populateSelects();
   restoreLast();
   initBuildLink();
+  initTheme();
 }
 
 function initBuildLink() {
   const a = document.getElementById('buildLink');
-  if (!a || a.textContent.trim() !== 'dev') return;
-  fetch('https://api.github.com/repos/maedoc/louper-truc/commits/main', {
-    headers: { Accept: 'application/vnd.github.v3+json' },
-  })
-    .then((r) => (r.ok ? r.json() : null))
-    .then((d) => {
-      if (!d) return;
-      const sha7 = d.sha.slice(0, 7);
-      a.textContent = sha7;
-      a.href = d.html_url;
-    })
-    .catch(() => {});
+  if (!a) return;
+  const d = new Date(document.lastModified);
+  const date = d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+  const time = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  a.textContent = 'built on ' + date + ', ' + time;
+  a.removeAttribute('href');
 }

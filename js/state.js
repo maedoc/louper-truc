@@ -12,7 +12,6 @@ export const WHEEL_PAN_SENSITIVITY = 0.02;
 export const DBLCLICK_ZOOM_FACTOR = 2;
 export const INTERACTION_TIMEOUT_MS = 250;
 export const PLAYBACK_END_THRESHOLD = 0.05;
-export const AUTO_FOLLOW_MARGIN = 0.15;
 
 export const SPEED_STEPS = [0.5, 0.6, 0.7, 0.8, 0.9, 1, 1.1];
 

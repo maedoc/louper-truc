@@ -8,12 +8,12 @@ const ZOOM_MAX = 2000;
 const LOOP_MIN_SEC = 0.05;
 const DRAG_THRESHOLD_MOUSE = 4;
 const DRAG_THRESHOLD_TOUCH = 8;
+const TAP_MAX_MS = 300;
 const LONG_PRESS_MS = 450;
 const WHEEL_ZOOM_SENSITIVITY = 0.002;
 const WHEEL_PAN_SENSITIVITY = 0.02;
 const DBLCLICK_ZOOM_FACTOR = 2;
 const INTERACTION_TIMEOUT_MS = 250;
-const AUTO_FOLLOW_MARGIN = 0.15;
 const SPEED_STEPS = [0.5, 0.6, 0.7, 0.8, 0.9, 1, 1.1];
 
 /* ---------- state ---------- */
@@ -164,14 +164,19 @@ function tick() {
     audioEl.currentTime = loopStart;
   }
   if (!interacting && autoFollow && zoom > cssW / duration) {
-    const margin = cssW * AUTO_FOLLOW_MARGIN;
-    const px = timeToX(t);
-    if (px > cssW - margin) {
-      viewStart = clampViewStart(t - margin / zoom);
-      draw();
-    } else if (px < margin) {
-      viewStart = clampViewStart(t - (cssW - margin) / zoom);
-      draw();
+    const viewDur = cssW / zoom;
+    const loopVisible =
+      loopOn &&
+      loopEnd - loopStart <= viewDur &&
+      viewStart <= loopStart &&
+      viewStart + viewDur >= loopEnd;
+    if (!loopVisible) {
+      const targetX = cssW * 0.75;
+      const px = (t - viewStart) * zoom;
+      if (px > targetX || px < cssW * 0.1) {
+        viewStart = clampViewStart(t - targetX / zoom);
+        draw();
+      }
     }
   }
   scrub.value = t;
@@ -179,8 +184,26 @@ function tick() {
   raf = requestAnimationFrame(tick);
 }
 
-function startRaf() { if (!raf) raf = requestAnimationFrame(tick); }
-function cancelRaf() { if (raf) { cancelAnimationFrame(raf); raf = 0; } }
+function startRaf() { if (!raf) raf = requestAnimationFrame(tick); requestWakeLock(); }
+function cancelRaf() { if (raf) { cancelAnimationFrame(raf); raf = 0; } releaseWakeLock(); }
+
+let wakeLock = null;
+
+async function requestWakeLock() {
+  if (!('wakeLock' in navigator)) return;
+  try {
+    wakeLock = await navigator.wakeLock.request('screen');
+    wakeLock.addEventListener('release', () => { wakeLock = null; });
+  } catch { wakeLock = null; }
+}
+
+function releaseWakeLock() {
+  if (wakeLock) { wakeLock.release(); wakeLock = null; }
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && isPlaying) requestWakeLock();
+});
 
 /* ---------- load ---------- */
 function guessMime(ab) {
@@ -257,11 +280,28 @@ function computePeaks() {
   }
 }
 
+/* ---------- theme colors ---------- */
+const _tc = {};
+function cssVar(name) {
+  if (_tc._theme === document.documentElement.dataset.theme) return _tc[name];
+  _tc._theme = document.documentElement.dataset.theme;
+  const st = getComputedStyle(document.documentElement);
+  _tc['--waveform-bg'] = st.getPropertyValue('--waveform-bg').trim();
+  _tc['--waveform-fg'] = st.getPropertyValue('--waveform-fg').trim();
+  _tc['--loop-fill-on'] = st.getPropertyValue('--loop-fill-on').trim();
+  _tc['--loop-fill-off'] = st.getPropertyValue('--loop-fill-off').trim();
+  _tc['--loop-stroke-on'] = st.getPropertyValue('--loop-stroke-on').trim();
+  _tc['--loop-stroke-off'] = st.getPropertyValue('--loop-stroke-off').trim();
+  _tc['--cue-stroke'] = st.getPropertyValue('--cue-stroke').trim();
+  _tc['--playhead-stroke'] = st.getPropertyValue('--playhead-stroke').trim();
+  return _tc[name];
+}
+
 /* ---------- draw ---------- */
 function draw() {
   if (!cssW || !cssH) return;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.fillStyle = '#0e1013';
+  ctx.fillStyle = cssVar('--waveform-bg');
   ctx.fillRect(0, 0, cssW, cssH);
   if (!peaks || !duration) return;
 
@@ -274,7 +314,7 @@ function draw() {
   const lo = clamp(b0, 0, peaks.length / 2 - 1);
   const hi = clamp(b1, 0, peaks.length / 2 - 1);
 
-  ctx.fillStyle = '#6b7a8f';
+  ctx.fillStyle = cssVar('--waveform-fg');
   for (let i = lo; i <= hi; i++) {
     const t = i * secPerBlock;
     const x = timeToX(t);
@@ -289,9 +329,9 @@ function draw() {
   if ((loopOn || state === 'selecting') && loopEnd > loopStart) {
     const sx = timeToX(loopStart);
     const ex = timeToX(loopEnd);
-    ctx.fillStyle = loopOn ? 'rgba(99,102,241,0.18)' : 'rgba(250,204,21,0.15)';
+    ctx.fillStyle = loopOn ? cssVar('--loop-fill-on') : cssVar('--loop-fill-off');
     ctx.fillRect(sx, 0, ex - sx, cssH);
-    ctx.strokeStyle = loopOn ? '#818cf8' : '#facc15';
+    ctx.strokeStyle = loopOn ? cssVar('--loop-stroke-on') : cssVar('--loop-stroke-off');
     ctx.lineWidth = 1.5;
     ctx.beginPath();
     ctx.moveTo(sx, 0); ctx.lineTo(sx, cssH);
@@ -301,7 +341,7 @@ function draw() {
 
   /* cue */
   const cx = timeToX(cuePoint);
-  ctx.strokeStyle = '#f87171';
+  ctx.strokeStyle = cssVar('--cue-stroke');
   ctx.lineWidth = 1.5;
   ctx.setLineDash([4, 4]);
   ctx.beginPath();
@@ -312,7 +352,7 @@ function draw() {
   /* playhead */
   const t = isPlaying ? getCurrentTime() : pauseOffset;
   const px = timeToX(t);
-  ctx.strokeStyle = '#34d399';
+  ctx.strokeStyle = cssVar('--playhead-stroke');
   ctx.lineWidth = 2;
   ctx.beginPath();
   ctx.moveTo(px, 0); ctx.lineTo(px, cssH);
@@ -427,7 +467,7 @@ canvas.addEventListener('touchstart', e => {
     const t = e.touches[0];
     const x = t.clientX - canvasRect.left;
     const y = t.clientY - canvasRect.top;
-    touches.set(t.identifier, { x0: x, y0: y, origView: viewStart });
+    touches.set(t.identifier, { x0: x, y0: y, origView: viewStart, time0: performance.now() });
     state = 'idle-down';
     longPressTimer = setTimeout(() => {
       if (state === 'idle-down') {
@@ -482,20 +522,25 @@ canvas.addEventListener('touchmove', e => {
 canvas.addEventListener('touchend', e => {
   if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
   if (e.touches.length === 0) {
-    if (state === 'idle-down') {
-      const ct = e.changedTouches[0];
-      const x = ct.clientX - canvasRect.left;
+    const ct = e.changedTouches[0];
+    const x = ct.clientX - canvasRect.left;
+    const touch = touches.get(ct.identifier);
+    const dx = touch ? Math.abs(x - touch.x0) : Infinity;
+    const dt = touch ? performance.now() - touch.time0 : Infinity;
+    const isTap = dt < TAP_MAX_MS && dx < DRAG_THRESHOLD_TOUCH * 2;
+    if (isTap && state !== 'selecting') {
       cuePoint = clamp(xToTime(x), 0, duration);
       seek(cuePoint);
       draw();
     } else if (state === 'selecting') {
       finalizeSelection();
     }
+    touches.delete(ct.identifier);
     state = 'idle';
   } else if (e.touches.length === 1 && state === 'pinching') {
     const t = e.touches[0];
     const x = t.clientX - canvasRect.left;
-    touches.set(t.identifier, { x0: x, origView: viewStart });
+    touches.set(t.identifier, { x0: x, origView: viewStart, time0: performance.now() });
     state = 'panning';
   }
   lastInteractionTime = performance.now();
@@ -828,7 +873,36 @@ async function restoreLast() {
   }
 }
 
+/* ---------- theme ---------- */
+const THEME_KEY = 'louper-theme';
+
+function getSystemTheme() {
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+
+function applyTheme(theme) {
+  document.documentElement.dataset.theme = theme;
+  localStorage.setItem(THEME_KEY, theme);
+  const btn = $('btnTheme');
+  if (btn) btn.textContent = theme === 'dark' ? '\u2600' : '\u263E';
+  draw();
+}
+
+function initTheme() {
+  const stored = localStorage.getItem(THEME_KEY);
+  const theme = stored || getSystemTheme();
+  applyTheme(theme);
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
+    if (!localStorage.getItem(THEME_KEY)) applyTheme(e.matches ? 'dark' : 'light');
+  });
+  $('btnTheme').addEventListener('click', () => {
+    const current = document.documentElement.dataset.theme;
+    applyTheme(current === 'dark' ? 'light' : 'dark');
+  });
+}
+
 /* ---------- boot ---------- */
 resize();
 populateSelects();
 restoreLast();
+initTheme();

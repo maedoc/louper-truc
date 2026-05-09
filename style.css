@@ -8,9 +8,67 @@ html,
 body {
   height: 100%;
 }
+
+:root,
+[data-theme='dark'] {
+  --bg: #0b0c0f;
+  --fg: #e5e7eb;
+  --muted: #9aa3b2;
+  --dim: #7b8594;
+  --surface: #0f1115;
+  --card: #14171d;
+  --border: #20242b;
+  --btn-bg: #1a1d23;
+  --btn-border: #2a2f38;
+  --btn-hover: #242930;
+  --btn-hover-border: #3c4452;
+  --active-bg: #2d3343;
+  --active-border: #4f5d73;
+  --waveform-bg: #0e1013;
+  --waveform-fg: #6b7a8f;
+  --loop-fill-on: rgba(99,102,241,0.18);
+  --loop-fill-off: rgba(250,204,21,0.15);
+  --loop-stroke-on: #818cf8;
+  --loop-stroke-off: #facc15;
+  --cue-stroke: #f87171;
+  --playhead-stroke: #ef4444;
+  --dropzone-bg: rgba(0,0,0,0.6);
+  --build-color: #4b5563;
+  --option-bg: #14171d;
+  --option-disabled: #5b6370;
+}
+
+[data-theme='light'] {
+  --bg: #f5f5f5;
+  --fg: #1a1a1a;
+  --muted: #555;
+  --dim: #777;
+  --surface: #eee;
+  --card: #fff;
+  --border: #d0d0d0;
+  --btn-bg: #e0e0e0;
+  --btn-border: #c0c0c0;
+  --btn-hover: #d5d5d5;
+  --btn-hover-border: #aaa;
+  --active-bg: #c8d0e0;
+  --active-border: #8899b3;
+  --waveform-bg: #f9f9f9;
+  --waveform-fg: #5a6070;
+  --loop-fill-on: rgba(99,102,241,0.12);
+  --loop-fill-off: rgba(250,204,21,0.10);
+  --loop-stroke-on: #6366f1;
+  --loop-stroke-off: #eab308;
+  --cue-stroke: #ef4444;
+  --playhead-stroke: #dc2626;
+  --dropzone-bg: rgba(255,255,255,0.7);
+  --build-color: #999;
+  --option-bg: #fff;
+  --option-disabled: #aaa;
+}
+
 body {
-  background: #0b0c0f;
-  color: #e5e7eb;
+  background: var(--bg);
+  color: var(--fg);
   font-family:
     system-ui,
     -apple-system,
@@ -33,14 +91,14 @@ header {
   flex-wrap: wrap;
   align-items: center;
   gap: 10px 16px;
-  border-bottom: 1px solid #20242b;
-  background: #0f1115;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
 }
 h1 {
   font-size: 14px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #9aa3b2;
+  color: var(--muted);
   margin-right: 6px;
 }
 .controls {
@@ -51,24 +109,24 @@ h1 {
   flex: 1;
 }
 .controls button {
-  background: #1a1d23;
-  color: #e5e7eb;
-  border: 1px solid #2a2f38;
+  background: var(--btn-bg);
+  color: var(--fg);
+  border: 1px solid var(--btn-border);
   padding: 6px 10px;
   border-radius: 8px;
   cursor: pointer;
   font-size: 13px;
 }
 .controls button:hover {
-  background: #242930;
-  border-color: #3c4452;
+  background: var(--btn-hover);
+  border-color: var(--btn-hover-border);
 }
 .controls button:active {
   transform: translateY(1px);
 }
 .controls label {
   font-size: 12px;
-  color: #9aa3b2;
+  color: var(--muted);
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -81,9 +139,9 @@ h1 {
   gap: 0;
 }
 .speed-btns button {
-  background: #1a1d23;
-  color: #9aa3b2;
-  border: 1px solid #2a2f38;
+  background: var(--btn-bg);
+  color: var(--dim);
+  border: 1px solid var(--btn-border);
   padding: 5px 8px;
   font-size: 12px;
   cursor: pointer;
@@ -100,13 +158,13 @@ h1 {
   border-left: none;
 }
 .speed-btns button:hover {
-  background: #242930;
-  color: #e5e7eb;
+  background: var(--btn-hover);
+  color: var(--fg);
 }
 .speed-btns button.active {
-  background: #2d3343;
-  color: #e5e7eb;
-  border-color: #4f5d73;
+  background: var(--active-bg);
+  color: var(--fg);
+  border-color: var(--active-border);
 }
 .status {
   display: flex;
@@ -117,9 +175,9 @@ h1 {
   font-size: 11px;
   padding: 4px 8px;
   border-radius: 999px;
-  background: #1a1d23;
-  border: 1px solid #2a2f38;
-  color: #7b8594;
+  background: var(--btn-bg);
+  border: 1px solid var(--btn-border);
+  color: var(--dim);
 }
 #fileInput {
   position: absolute;
@@ -130,7 +188,7 @@ h1 {
   flex: 1 1 auto;
   position: relative;
   display: flex;
-  background: #0e1013;
+  background: var(--waveform-bg);
   min-height: 0;
 }
 #waveform {
@@ -161,8 +219,8 @@ h1 {
 }
 .overlay .card {
   pointer-events: auto;
-  background: #14171d;
-  border: 1px solid #20242b;
+  background: var(--card);
+  border: 1px solid var(--border);
   border-radius: 12px;
   padding: 22px 26px;
   text-align: center;
@@ -172,11 +230,11 @@ h1 {
 .overlay h2 {
   font-size: 18px;
   margin-bottom: 6px;
-  color: #e5e7eb;
+  color: var(--fg);
 }
 .overlay p {
   font-size: 13px;
-  color: #7b8594;
+  color: var(--dim);
   margin-bottom: 14px;
 }
 #btnDemo {
@@ -195,8 +253,8 @@ h1 {
   transform: translateX(-50%);
   z-index: 3;
   font-size: 11px;
-  color: #7b8594;
-  background: rgba(0, 0, 0, 0.6);
+  color: var(--dim);
+  background: var(--dropzone-bg);
   padding: 5px 10px;
   border-radius: 999px;
   pointer-events: none;
@@ -211,12 +269,12 @@ h1 {
   display: flex;
   align-items: center;
   gap: 10px;
-  border-top: 1px solid #20242b;
-  background: #0f1115;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
 }
 .scrub-wrap span {
   font-size: 12px;
-  color: #9aa3b2;
+  color: var(--muted);
   font-variant-numeric: tabular-nums;
   min-width: 56px;
 }
@@ -228,7 +286,7 @@ h1 {
 }
 
 #waveform.dragover {
-  outline: 2px dashed #3c4452;
+  outline: 2px dashed var(--btn-hover-border);
   outline-offset: -4px;
 }
 #waveform.selecting {
@@ -243,9 +301,9 @@ h1 {
   margin-top: 10px;
 }
 .track-select {
-  background: #1a1d23;
-  color: #e5e7eb;
-  border: 1px solid #2a2f38;
+  background: var(--btn-bg);
+  color: var(--fg);
+  border: 1px solid var(--btn-border);
   border-radius: 8px;
   padding: 6px 10px;
   font-size: 13px;
@@ -254,15 +312,15 @@ h1 {
   min-width: 160px;
 }
 .track-select:hover {
-  background: #242930;
-  border-color: #3c4452;
+  background: var(--btn-hover);
+  border-color: var(--btn-hover-border);
 }
 .track-select option {
-  background: #14171d;
-  color: #e5e7eb;
+  background: var(--option-bg);
+  color: var(--fg);
 }
 .track-select option:disabled {
-  color: #5b6370;
+  color: var(--option-disabled);
 }
 
 .overlay.hidden .card {
@@ -275,15 +333,29 @@ h1 {
   right: 14px;
   z-index: 3;
   font-size: 11px;
-  color: #4b5563;
+  color: var(--build-color);
   pointer-events: none;
 }
 .build-info a {
-  color: #4b5563;
+  color: var(--build-color);
   text-decoration: none;
   pointer-events: auto;
 }
 .build-info a:hover {
-  color: #9aa3b2;
+  color: var(--muted);
   text-decoration: underline;
+}
+
+#btnTheme {
+  background: var(--btn-bg);
+  border: 1px solid var(--btn-border);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 16px;
+  padding: 4px 8px;
+  line-height: 1;
+}
+#btnTheme:hover {
+  background: var(--btn-hover);
+  border-color: var(--btn-hover-border);
 }

@@ -2,17 +2,25 @@
 import { s, clamp, timeToX, BLOCK } from './state.js';
 import { getCurrentTime } from './audio.js';
 
-const WAVEFORM_BG = '#0e1013';
-const WAVEFORM_FG = '#6b7a8f';
-const LOOP_FILL_ON = 'rgba(99,102,241,0.18)';
-const LOOP_FILL_OFF = 'rgba(250,204,21,0.15)';
-const LOOP_STROKE_ON = '#818cf8';
-const LOOP_STROKE_OFF = '#facc15';
-const CUE_STROKE = '#f87171';
-const PLAYHEAD_STROKE = '#34d399';
-
 let canvas, ctx;
 let overlayCanvas, overlayCtx;
+
+const cache = {};
+
+function cssVar(name) {
+  if (cache._theme === document.documentElement.dataset.theme) return cache[name];
+  cache._theme = document.documentElement.dataset.theme;
+  const st = getComputedStyle(document.documentElement);
+  cache['--waveform-bg'] = st.getPropertyValue('--waveform-bg').trim();
+  cache['--waveform-fg'] = st.getPropertyValue('--waveform-fg').trim();
+  cache['--loop-fill-on'] = st.getPropertyValue('--loop-fill-on').trim();
+  cache['--loop-fill-off'] = st.getPropertyValue('--loop-fill-off').trim();
+  cache['--loop-stroke-on'] = st.getPropertyValue('--loop-stroke-on').trim();
+  cache['--loop-stroke-off'] = st.getPropertyValue('--loop-stroke-off').trim();
+  cache['--cue-stroke'] = st.getPropertyValue('--cue-stroke').trim();
+  cache['--playhead-stroke'] = st.getPropertyValue('--playhead-stroke').trim();
+  return cache[name];
+}
 
 export function init(canvasEl) {
   canvas = canvasEl;
@@ -35,7 +43,7 @@ export function resizeCanvases() {
 export function draw() {
   if (!s.cssW || !s.cssH) return;
   ctx.setTransform(s.dpr, 0, 0, s.dpr, 0, 0);
-  ctx.fillStyle = WAVEFORM_BG;
+  ctx.fillStyle = cssVar('--waveform-bg');
   ctx.fillRect(0, 0, s.cssW, s.cssH);
   if (!s.peaks || !s.duration) {
     drawOverlay();
@@ -51,7 +59,7 @@ export function draw() {
   const lo = clamp(b0, 0, s.peaks.length / 2 - 1);
   const hi = clamp(b1, 0, s.peaks.length / 2 - 1);
 
-  ctx.fillStyle = WAVEFORM_FG;
+  ctx.fillStyle = cssVar('--waveform-fg');
   for (let i = lo; i <= hi; i++) {
     const t = i * secPerBlock;
     const x = timeToX(t);
@@ -65,9 +73,9 @@ export function draw() {
   if ((s.loopOn || s.interaction === 'selecting') && s.loopEnd > s.loopStart) {
     const sx = timeToX(s.loopStart);
     const ex = timeToX(s.loopEnd);
-    ctx.fillStyle = s.loopOn ? LOOP_FILL_ON : LOOP_FILL_OFF;
+    ctx.fillStyle = s.loopOn ? cssVar('--loop-fill-on') : cssVar('--loop-fill-off');
     ctx.fillRect(sx, 0, ex - sx, s.cssH);
-    ctx.strokeStyle = s.loopOn ? LOOP_STROKE_ON : LOOP_STROKE_OFF;
+    ctx.strokeStyle = s.loopOn ? cssVar('--loop-stroke-on') : cssVar('--loop-stroke-off');
     ctx.lineWidth = 1.5;
     ctx.beginPath();
     ctx.moveTo(sx, 0);
@@ -87,7 +95,7 @@ export function drawOverlay() {
   if (!s.peaks || !s.duration) return;
 
   const cx = timeToX(s.cuePoint);
-  overlayCtx.strokeStyle = CUE_STROKE;
+  overlayCtx.strokeStyle = cssVar('--cue-stroke');
   overlayCtx.lineWidth = 1.5;
   overlayCtx.setLineDash([4, 4]);
   overlayCtx.beginPath();
@@ -98,7 +106,7 @@ export function drawOverlay() {
 
   const t = s.isPlaying ? getCurrentTime() : s.pauseOffset;
   const px = timeToX(t);
-  overlayCtx.strokeStyle = PLAYHEAD_STROKE;
+  overlayCtx.strokeStyle = cssVar('--playhead-stroke');
   overlayCtx.lineWidth = 2;
   overlayCtx.beginPath();
   overlayCtx.moveTo(px, 0);
