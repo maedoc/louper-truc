@@ -34,6 +34,7 @@ export function seek(t) {
   t = clamp(t, 0, s.duration);
   if (s.audioEl) s.audioEl.currentTime = t;
   if (!s.isPlaying) s.pauseOffset = t;
+  s.cuePoint = t;
 }
 
 export function togglePlay(startTime) {

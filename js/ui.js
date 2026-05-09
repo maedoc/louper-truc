@@ -64,7 +64,7 @@ export function boot() {
     .addEventListener('click', () => document.getElementById('fileInput').click());
   document
     .getElementById('btnPlay')
-    .addEventListener('click', () => togglePlay(s.audioEl ? s.audioEl.currentTime : s.pauseOffset));
+    .addEventListener('click', () => togglePlay(s.pauseOffset));
   document.getElementById('btnLoop').addEventListener('click', toggleLoop);
   document.getElementById('btnResetZoom').addEventListener('click', () => {
     s.zoom = s.cssW / s.duration || ZOOM_MIN;

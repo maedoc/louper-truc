@@ -308,16 +308,18 @@ export function init(canvas) {
       return;
     if (e.code === 'Space') {
       e.preventDefault();
-      togglePlay(s.cuePoint);
+      togglePlay(s.pauseOffset);
     } else if (e.code === 'KeyL') {
       toggleLoop();
     } else if (e.code === 'ArrowLeft') {
       e.preventDefault();
-      seek(getCurrentTime() - (e.shiftKey ? 5 : 1));
+      const base = s.isPlaying ? getCurrentTime() : s.pauseOffset;
+      seek(base - (e.shiftKey ? 5 : 1));
       draw();
     } else if (e.code === 'ArrowRight') {
       e.preventDefault();
-      seek(getCurrentTime() + (e.shiftKey ? 5 : 1));
+      const base = s.isPlaying ? getCurrentTime() : s.pauseOffset;
+      seek(base + (e.shiftKey ? 5 : 1));
       draw();
     }
   });

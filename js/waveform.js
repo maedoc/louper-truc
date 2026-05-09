@@ -7,6 +7,14 @@ let overlayCanvas, overlayCtx;
 
 const cache = {};
 
+function snapX(x, lw) {
+  const d = s.dpr;
+  if (d === 1) {
+    return lw % 2 === 0 ? Math.round(x) : Math.round(x - 0.5) + 0.5;
+  }
+  return Math.round(x * d) / d;
+}
+
 function cssVar(name) {
   if (cache._theme === document.documentElement.dataset.theme) return cache[name];
   cache._theme = document.documentElement.dataset.theme;
@@ -71,12 +79,12 @@ export function draw() {
   }
 
   if ((s.loopOn || s.interaction === 'selecting') && s.loopEnd > s.loopStart) {
-    const sx = timeToX(s.loopStart);
-    const ex = timeToX(s.loopEnd);
+    const sx = snapX(timeToX(s.loopStart), 1);
+    const ex = snapX(timeToX(s.loopEnd), 1);
     ctx.fillStyle = s.loopOn ? cssVar('--loop-fill-on') : cssVar('--loop-fill-off');
     ctx.fillRect(sx, 0, ex - sx, s.cssH);
     ctx.strokeStyle = s.loopOn ? cssVar('--loop-stroke-on') : cssVar('--loop-stroke-off');
-    ctx.lineWidth = 1.5;
+    ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(sx, 0);
     ctx.lineTo(sx, s.cssH);
@@ -94,9 +102,9 @@ export function drawOverlay() {
   overlayCtx.clearRect(0, 0, s.cssW, s.cssH);
   if (!s.peaks || !s.duration) return;
 
-  const cx = timeToX(s.cuePoint);
+  const cx = snapX(timeToX(s.cuePoint), 1);
   overlayCtx.strokeStyle = cssVar('--cue-stroke');
-  overlayCtx.lineWidth = 1.5;
+  overlayCtx.lineWidth = 1;
   overlayCtx.setLineDash([4, 4]);
   overlayCtx.beginPath();
   overlayCtx.moveTo(cx, 0);
@@ -105,7 +113,7 @@ export function drawOverlay() {
   overlayCtx.setLineDash([]);
 
   const t = s.isPlaying ? getCurrentTime() : s.pauseOffset;
-  const px = timeToX(t);
+  const px = snapX(timeToX(t), 2);
   overlayCtx.strokeStyle = cssVar('--playhead-stroke');
   overlayCtx.lineWidth = 2;
   overlayCtx.beginPath();
