@@ -32,23 +32,34 @@ export function stopInternal() {
 
 export function seek(t) {
   t = clamp(t, 0, s.duration);
-  if (s.audioEl) s.audioEl.currentTime = t;
+  console.log('[SEEK] Called with t:', t, 'duration:', s.duration, 'cuePoint before:', s.cuePoint);
+  if (s.audioEl) {
+    s.audioEl.currentTime = t;
+    console.log('[SEEK] Set audioEl.currentTime to:', t, 'actual currentTime:', s.audioEl.currentTime);
+  }
   if (!s.isPlaying) s.pauseOffset = t;
   s.cuePoint = t;
+  console.log('[SEEK] After seek - cuePoint:', s.cuePoint, 'pauseOffset:', s.pauseOffset);
 }
 
 export function togglePlay(startTime) {
+  console.log('[PLAY] togglePlay called with startTime:', startTime, 'cuePoint:', s.cuePoint, 'isPlaying:', s.isPlaying);
   initAudio();
   if (s.isPlaying) {
     s.audioEl.pause();
     s.isPlaying = false;
     s.pauseOffset = s.audioEl.currentTime;
+    console.log('[PLAY] Paused at:', s.pauseOffset);
     cancelRaf();
   } else {
     if (s.loopOn && (startTime < s.loopStart || startTime >= s.loopEnd)) {
+      console.log('[PLAY] Loop active, using loopStart:', s.loopStart);
       s.audioEl.currentTime = s.loopStart;
     } else {
-      s.audioEl.currentTime = startTime !== undefined ? startTime : s.cuePoint;
+      const actualStartTime = startTime !== undefined ? startTime : s.cuePoint;
+      console.log('[PLAY] Starting at:', actualStartTime);
+      s.audioEl.currentTime = actualStartTime;
+      console.log('[PLAY] audioEl.currentTime set to:', actualStartTime, 'actual:', s.audioEl.currentTime);
     }
     s.audioEl.playbackRate = s.playSpeed;
     s.audioEl.play().catch(() => {});
@@ -93,7 +104,11 @@ function tick() {
   const now = performance.now();
   const interacting = now - s.lastInteractionTime < INTERACTION_TIMEOUT_MS;
   const t = getCurrentTime();
+  if (Math.abs(t - Math.round(t)) > 0.001) {
+    console.log('[TICK] Current time:', t, 'cuePoint:', s.cuePoint);
+  }
   if (s.loopOn && t >= s.loopEnd - 1 / s.sampleRate) {
+    console.log('[TICK] Loop wrap from', t, 'to', s.loopStart);
     s.audioEl.currentTime = s.loopStart;
   }
   if (!interacting && s.autoFollow && s.zoom > s.cssW / s.duration) {

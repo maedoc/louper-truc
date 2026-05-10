@@ -111,9 +111,11 @@ export function init(canvas) {
   window.addEventListener('mouseup', (e) => {
     if (s.interaction === 'idle') return;
     if (s.interaction === 'selecting') {
-      if (Math.abs(e.clientX - s.canvasRect.left - s.pointer.x0) <= DRAG_THRESHOLD_MOUSE) {
-        s.cuePoint = clamp(xToTime(e.clientX - s.canvasRect.left), 0, s.duration);
-        seek(s.cuePoint);
+       if (Math.abs(e.clientX - s.canvasRect.left - s.pointer.x0) <= DRAG_THRESHOLD_MOUSE) {
+         const newCue = clamp(xToTime(e.clientX - s.canvasRect.left), 0, s.duration);
+         console.log('[CUE] Mouse click - Setting cuePoint to:', newCue, 'from x:', e.clientX - s.canvasRect.left);
+         s.cuePoint = newCue;
+         seek(s.cuePoint);
         s.loopStart = 0;
         s.loopEnd = 0;
         if (s.loopOn) toggleLoop();
@@ -259,9 +261,11 @@ export function init(canvas) {
       const dx = touch ? Math.abs(x - touch.x0) : Infinity;
       const dt = touch ? performance.now() - touch.time0 : Infinity;
       const isTap = dt < TAP_MAX_MS && dx < DRAG_THRESHOLD_TOUCH * 2;
-      if (isTap && s.interaction !== 'selecting') {
-        s.cuePoint = clamp(xToTime(x), 0, s.duration);
-        seek(s.cuePoint);
+       if (isTap && s.interaction !== 'selecting') {
+         const newCue = clamp(xToTime(x), 0, s.duration);
+         console.log('[CUE] Touch tap - Setting cuePoint to:', newCue, 'from x:', x);
+         s.cuePoint = newCue;
+         seek(s.cuePoint);
         draw();
       } else if (s.interaction === 'selecting') {
         finalizeSelection();

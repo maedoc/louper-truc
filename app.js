@@ -113,22 +113,34 @@ function getCurrentTime() {
 
 function seek(t) {
   t = clamp(t, 0, duration);
-  if (audioEl) audioEl.currentTime = t;
+  console.log('[SEEK] Called with t:', t, 'duration:', duration, 'cuePoint before:', cuePoint);
+  if (audioEl) {
+    audioEl.currentTime = t;
+    console.log('[SEEK] Set audioEl.currentTime to:', t, 'actual currentTime:', audioEl.currentTime);
+  }
   if (!isPlaying) pauseOffset = t;
+  cuePoint = t;
+  console.log('[SEEK] After seek - cuePoint:', cuePoint, 'pauseOffset:', pauseOffset);
 }
 
 function togglePlay(startTime) {
+  console.log('[PLAY] togglePlay called with startTime:', startTime, 'cuePoint:', cuePoint, 'isPlaying:', isPlaying);
   initAudio();
   if (isPlaying) {
     audioEl.pause();
     isPlaying = false;
     pauseOffset = audioEl.currentTime;
+    console.log('[PLAY] Paused at:', pauseOffset);
     cancelRaf();
   } else {
     if (loopOn && (startTime < loopStart || startTime >= loopEnd)) {
+      console.log('[PLAY] Loop active, using loopStart:', loopStart);
       audioEl.currentTime = loopStart;
     } else {
-      audioEl.currentTime = startTime !== undefined ? startTime : cuePoint;
+      const actualStartTime = startTime !== undefined ? startTime : cuePoint;
+      console.log('[PLAY] Starting at:', actualStartTime);
+      audioEl.currentTime = actualStartTime;
+      console.log('[PLAY] audioEl.currentTime set to:', actualStartTime, 'actual:', audioEl.currentTime);
     }
     audioEl.playbackRate = playSpeed;
     audioEl.play().catch(() => {});
@@ -160,7 +172,11 @@ function tick() {
   const now = performance.now();
   const interacting = (now - lastInteractionTime) < INTERACTION_TIMEOUT_MS;
   const t = getCurrentTime();
+  if (Math.abs(t - Math.round(t)) > 0.001) {
+    console.log('[TICK] Current time:', t, 'cuePoint:', cuePoint);
+  }
   if (loopOn && t >= loopEnd - (1 / sampleRate)) {
+    console.log('[TICK] Loop wrap from', t, 'to', loopStart);
     audioEl.currentTime = loopStart;
   }
   if (!interacting && autoFollow && zoom > cssW / duration) {
@@ -408,7 +424,9 @@ window.addEventListener('mouseup', e => {
   if (state === 'idle') return;
   if (state === 'selecting') {
     if (Math.abs(e.clientX - canvasRect.left - pointer.x0) <= DRAG_THRESHOLD_MOUSE) {
-      cuePoint = clamp(xToTime(e.clientX - canvasRect.left), 0, duration);
+      const newCue = clamp(xToTime(e.clientX - canvasRect.left), 0, duration);
+      console.log('[CUE] Mouse click - Setting cuePoint to:', newCue, 'from x:', e.clientX - canvasRect.left);
+      cuePoint = newCue;
       seek(cuePoint);
       loopStart = 0; loopEnd = 0;
       if (loopOn) toggleLoop();
@@ -528,9 +546,11 @@ canvas.addEventListener('touchend', e => {
     const dx = touch ? Math.abs(x - touch.x0) : Infinity;
     const dt = touch ? performance.now() - touch.time0 : Infinity;
     const isTap = dt < TAP_MAX_MS && dx < DRAG_THRESHOLD_TOUCH * 2;
-    if (isTap && state !== 'selecting') {
-      cuePoint = clamp(xToTime(x), 0, duration);
-      seek(cuePoint);
+      if (isTap && state !== 'selecting') {
+        const newCue = clamp(xToTime(x), 0, duration);
+        console.log('[CUE] Touch tap - Setting cuePoint to:', newCue, 'from x:', x);
+        cuePoint = newCue;
+        seek(cuePoint);
       draw();
     } else if (state === 'selecting') {
       finalizeSelection();
