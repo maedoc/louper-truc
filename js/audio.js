@@ -33,9 +33,9 @@ function startSource(offset) {
   node.start(0, offset);
 }
 
-export async function initAudio() {
+export function initAudio() {
   if (!s.audioCtx) s.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  if (s.audioCtx.state === 'suspended') await s.audioCtx.resume();
+  if (s.audioCtx.state === 'suspended') s.audioCtx.resume().catch(() => {});
 }
 
 export function getCurrentTime() {
@@ -58,8 +58,8 @@ export function seek(t) {
   s.cuePoint = t;
 }
 
-export async function togglePlay(startTime) {
-  await initAudio();
+export function togglePlay(startTime) {
+  initAudio();
   if (s.isPlaying) {
     s.pauseOffset = getCurrentTime();
     killSource();
