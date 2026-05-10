@@ -8,8 +8,8 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9afed3 # v4
-      - uses: actions/setup-node@cdca7365b2dadb8aad0a33bc7601856ffab00248 # v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@cdca7365b2dadb8aad0a33bc7601856ffabcc48e # v4.3.0
         with:
           node-version: '20'
       - run: npm ci
@@ -42,7 +42,7 @@ jobs:
         run: |
           grep -o 'href="[^"]*"' index.html | head -1
           grep -o '>[a-f0-9]\{7\}<' index.html || true
-      - uses: actions/upload-pages-artifact@56afc609e7420260d3c00010e1b1d4f11c19f535 # v3
+      - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3
         with:
           path: .
   deploy:
@@ -56,4 +56,4 @@ jobs:
       id-token: write
     steps:
       - id: deployment
-        uses: actions/deploy-pages@d6db91d4bb6e40623d6fa32a6403c3e5a2a5e0fd # v4
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4
