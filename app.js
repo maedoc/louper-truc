@@ -128,7 +128,7 @@ function togglePlay(startTime) {
     if (loopOn && (startTime < loopStart || startTime >= loopEnd)) {
       audioEl.currentTime = loopStart;
     } else {
-      audioEl.currentTime = startTime;
+      audioEl.currentTime = startTime !== undefined ? startTime : cuePoint;
     }
     audioEl.playbackRate = playSpeed;
     audioEl.play().catch(() => {});

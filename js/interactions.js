@@ -308,7 +308,7 @@ export function init(canvas) {
       return;
     if (e.code === 'Space') {
       e.preventDefault();
-      togglePlay(s.pauseOffset);
+      togglePlay(s.cuePoint);
     } else if (e.code === 'KeyL') {
       toggleLoop();
     } else if (e.code === 'ArrowLeft') {

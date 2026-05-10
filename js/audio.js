@@ -48,7 +48,7 @@ export function togglePlay(startTime) {
     if (s.loopOn && (startTime < s.loopStart || startTime >= s.loopEnd)) {
       s.audioEl.currentTime = s.loopStart;
     } else {
-      s.audioEl.currentTime = startTime;
+      s.audioEl.currentTime = startTime !== undefined ? startTime : s.cuePoint;
     }
     s.audioEl.playbackRate = s.playSpeed;
     s.audioEl.play().catch(() => {});
