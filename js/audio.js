@@ -4,7 +4,7 @@ import { draw, drawOverlay } from './waveform.js';
 function killSource() {
   if (s.sourceNode) {
     try { s.sourceNode.stop(); } catch { /* already stopped */ }
-    s.sourceNode.disconnect();
+    try { s.sourceNode.disconnect(); } catch { /* not connected */ }
     s.sourceNode = null;
   }
 }
@@ -12,12 +12,12 @@ function killSource() {
 function startSource(offset) {
   if (!s.buffer || !s.audioCtx) return;
   killSource();
-  s.sourceNode = s.audioCtx.createBufferSource();
-  s.sourceNode.buffer = s.buffer;
-  s.sourceNode.playbackRate.value = s.playSpeed;
-  s.sourceNode.connect(s.audioCtx.destination);
-  s.sourceNode.onended = () => {
-    if (s.isPlaying && s.sourceNode === null) return;
+  const node = s.audioCtx.createBufferSource();
+  node.buffer = s.buffer;
+  node.playbackRate.value = s.playSpeed;
+  node.connect(s.audioCtx.destination);
+  node.onended = () => {
+    if (s.sourceNode !== node) return;
     if (s.isPlaying) {
       s.isPlaying = false;
       s.pauseOffset = 0;
@@ -27,14 +27,15 @@ function startSource(offset) {
       drawOverlay();
     }
   };
+  s.sourceNode = node;
   s.playStartOffset = offset;
   s.playStartTime = s.audioCtx.currentTime;
-  s.sourceNode.start(0, offset);
+  node.start(0, offset);
 }
 
-export function initAudio() {
+export async function initAudio() {
   if (!s.audioCtx) s.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  if (s.audioCtx.state === 'suspended') s.audioCtx.resume();
+  if (s.audioCtx.state === 'suspended') await s.audioCtx.resume();
 }
 
 export function getCurrentTime() {
@@ -57,8 +58,8 @@ export function seek(t) {
   s.cuePoint = t;
 }
 
-export function togglePlay(startTime) {
-  initAudio();
+export async function togglePlay(startTime) {
+  await initAudio();
   if (s.isPlaying) {
     s.pauseOffset = getCurrentTime();
     killSource();

@@ -94,8 +94,8 @@ window.addEventListener('resize', resize);
 /* ---------- audio ---------- */
 function killSource() {
   if (sourceNode) {
-    try { sourceNode.stop(); } catch {}
-    sourceNode.disconnect();
+    try { sourceNode.stop(); } catch { /* already stopped */ }
+    try { sourceNode.disconnect(); } catch {}
     sourceNode = null;
   }
 }
@@ -103,12 +103,12 @@ function killSource() {
 function startSource(offset) {
   if (!buffer || !audioCtx) return;
   killSource();
-  sourceNode = audioCtx.createBufferSource();
-  sourceNode.buffer = buffer;
-  sourceNode.playbackRate.value = playSpeed;
-  sourceNode.connect(audioCtx.destination);
-  sourceNode.onended = () => {
-    if (isPlaying && sourceNode === null) return;
+  const node = audioCtx.createBufferSource();
+  node.buffer = buffer;
+  node.playbackRate.value = playSpeed;
+  node.connect(audioCtx.destination);
+  node.onended = () => {
+    if (sourceNode !== node) return;
     if (isPlaying) {
       isPlaying = false;
       pauseOffset = 0;
@@ -118,14 +118,15 @@ function startSource(offset) {
       draw();
     }
   };
+  sourceNode = node;
   playStartOffset = offset;
   playStartTime = audioCtx.currentTime;
-  sourceNode.start(0, offset);
+  node.start(0, offset);
 }
 
-function initAudio() {
+async function initAudio() {
   if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  if (audioCtx.state === 'suspended') audioCtx.resume();
+  if (audioCtx.state === 'suspended') await audioCtx.resume();
 }
 
 function getCurrentTime() {
@@ -143,8 +144,8 @@ function seek(t) {
   cuePoint = t;
 }
 
-function togglePlay(startTime) {
-  initAudio();
+async function togglePlay(startTime) {
+  await initAudio();
   if (isPlaying) {
     pauseOffset = getCurrentTime();
     killSource();
