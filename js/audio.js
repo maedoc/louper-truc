@@ -1,68 +1,76 @@
-/* louper-truc — audio engine & playback loop */
 import { s, clamp, clampViewStart, INTERACTION_TIMEOUT_MS } from './state.js';
 import { draw, drawOverlay } from './waveform.js';
+
+function killSource() {
+  if (s.sourceNode) {
+    try { s.sourceNode.stop(); } catch { /* already stopped */ }
+    s.sourceNode.disconnect();
+    s.sourceNode = null;
+  }
+}
+
+function startSource(offset) {
+  if (!s.buffer || !s.audioCtx) return;
+  killSource();
+  s.sourceNode = s.audioCtx.createBufferSource();
+  s.sourceNode.buffer = s.buffer;
+  s.sourceNode.playbackRate.value = s.playSpeed;
+  s.sourceNode.connect(s.audioCtx.destination);
+  s.sourceNode.onended = () => {
+    if (s.isPlaying && s.sourceNode === null) return;
+    if (s.isPlaying) {
+      s.isPlaying = false;
+      s.pauseOffset = 0;
+      s.cuePoint = 0;
+      updatePlayBtn();
+      cancelRaf();
+      drawOverlay();
+    }
+  };
+  s.playStartOffset = offset;
+  s.playStartTime = s.audioCtx.currentTime;
+  s.sourceNode.start(0, offset);
+}
 
 export function initAudio() {
   if (!s.audioCtx) s.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   if (s.audioCtx.state === 'suspended') s.audioCtx.resume();
-  if (!s.audioEl) {
-    s.audioEl = document.getElementById('audioPlayer');
-    if ('preservesPitch' in s.audioEl) s.audioEl.preservesPitch = true;
-    else if ('webkitPreservesPitch' in s.audioEl) s.audioEl.webkitPreservesPitch = true;
-    else if ('mozPreservesPitch' in s.audioEl) s.audioEl.mozPreservesPitch = true;
-    s.audioEl.addEventListener('ended', () => {
-      s.isPlaying = false;
-      s.pauseOffset = 0;
-      s.audioEl.currentTime = 0;
-      updatePlayBtn();
-      cancelRaf();
-      drawOverlay();
-    });
-  }
 }
 
 export function getCurrentTime() {
-  if (!s.audioEl) return s.pauseOffset;
-  return s.audioEl.currentTime;
+  if (!s.isPlaying || !s.audioCtx) return s.pauseOffset;
+  const elapsed = (s.audioCtx.currentTime - s.playStartTime) * s.playSpeed;
+  return s.playStartOffset + elapsed;
 }
 
 export function stopInternal() {
-  if (s.audioEl) s.audioEl.pause();
+  killSource();
+  s.isPlaying = false;
 }
 
 export function seek(t) {
   t = clamp(t, 0, s.duration);
-  console.log('[SEEK] Called with t:', t, 'duration:', s.duration, 'cuePoint before:', s.cuePoint);
-  if (s.audioEl) {
-    s.audioEl.currentTime = t;
-    console.log('[SEEK] Set audioEl.currentTime to:', t, 'actual currentTime:', s.audioEl.currentTime);
+  if (s.isPlaying) {
+    startSource(t);
   }
-  if (!s.isPlaying) s.pauseOffset = t;
+  s.pauseOffset = t;
   s.cuePoint = t;
-  console.log('[SEEK] After seek - cuePoint:', s.cuePoint, 'pauseOffset:', s.pauseOffset);
 }
 
 export function togglePlay(startTime) {
-  console.log('[PLAY] togglePlay called with startTime:', startTime, 'cuePoint:', s.cuePoint, 'isPlaying:', s.isPlaying);
   initAudio();
   if (s.isPlaying) {
-    s.audioEl.pause();
+    s.pauseOffset = getCurrentTime();
+    killSource();
     s.isPlaying = false;
-    s.pauseOffset = s.audioEl.currentTime;
-    console.log('[PLAY] Paused at:', s.pauseOffset);
     cancelRaf();
   } else {
-    if (s.loopOn && (startTime < s.loopStart || startTime >= s.loopEnd)) {
-      console.log('[PLAY] Loop active, using loopStart:', s.loopStart);
-      s.audioEl.currentTime = s.loopStart;
-    } else {
-      const actualStartTime = startTime !== undefined ? startTime : s.cuePoint;
-      console.log('[PLAY] Starting at:', actualStartTime);
-      s.audioEl.currentTime = actualStartTime;
-      console.log('[PLAY] audioEl.currentTime set to:', actualStartTime, 'actual:', s.audioEl.currentTime);
+    if (!s.buffer) return;
+    let offset = startTime !== undefined ? startTime : s.cuePoint;
+    if (s.loopOn && (offset < s.loopStart || offset >= s.loopEnd)) {
+      offset = s.loopStart;
     }
-    s.audioEl.playbackRate = s.playSpeed;
-    s.audioEl.play().catch(() => {});
+    startSource(offset);
     s.isPlaying = true;
     s.lastInteractionTime = 0;
     startRaf();
@@ -76,7 +84,7 @@ export function updatePlayBtn() {
 
 export function updateSpeed(val) {
   s.playSpeed = parseFloat(val) || 1;
-  if (s.audioEl) s.audioEl.playbackRate = s.playSpeed;
+  if (s.sourceNode) s.sourceNode.playbackRate.value = s.playSpeed;
   const btns = document.querySelectorAll('#speedBtns button');
   btns.forEach((b) => b.classList.toggle('active', parseFloat(b.dataset.speed) === s.playSpeed));
 }
@@ -104,12 +112,18 @@ function tick() {
   const now = performance.now();
   const interacting = now - s.lastInteractionTime < INTERACTION_TIMEOUT_MS;
   const t = getCurrentTime();
-  if (Math.abs(t - Math.round(t)) > 0.001) {
-    console.log('[TICK] Current time:', t, 'cuePoint:', s.cuePoint);
-  }
   if (s.loopOn && t >= s.loopEnd - 1 / s.sampleRate) {
-    console.log('[TICK] Loop wrap from', t, 'to', s.loopStart);
-    s.audioEl.currentTime = s.loopStart;
+    startSource(s.loopStart);
+  }
+  if (t >= s.duration) {
+    killSource();
+    s.isPlaying = false;
+    s.pauseOffset = 0;
+    s.cuePoint = 0;
+    updatePlayBtn();
+    cancelRaf();
+    drawOverlay();
+    return;
   }
   if (!interacting && s.autoFollow && s.zoom > s.cssW / s.duration) {
     const viewDur = s.cssW / s.zoom;

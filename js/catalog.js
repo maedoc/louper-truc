@@ -1,7 +1,7 @@
 /* louper-truc — track catalog & file loading */
 import { s, fmt, ZOOM_MIN } from './state.js';
 import { draw, computePeaks, updateZoomUI } from './waveform.js';
-import { initAudio } from './audio.js';
+import { initAudio, stopInternal } from './audio.js';
 import { saveTrack, loadTrack, getSavedIds, openDB } from './persistence.js';
 
 const STORE = 'tracks';
@@ -79,14 +79,13 @@ export async function loadArrayBuffer(ab, name) {
   }
   try {
     const decoded = await s.audioCtx.decodeAudioData(ab.slice(0));
+    stopInternal();
     s.buffer = decoded;
     s.sampleRate = s.buffer.sampleRate;
     s.duration = s.buffer.duration;
     if (s.blobUrl) URL.revokeObjectURL(s.blobUrl);
     const mime = guessMime(ab);
     s.blobUrl = URL.createObjectURL(new Blob([ab], mime ? { type: mime } : {}));
-    s.audioEl.src = s.blobUrl;
-    s.audioEl.playbackRate = s.playSpeed;
     computePeaks();
     s.cuePoint = 0;
     s.loopStart = 0;
