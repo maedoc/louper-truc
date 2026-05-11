@@ -1,21 +1,72 @@
 import { s, clamp, clampViewStart, INTERACTION_TIMEOUT_MS } from './state.js';
 import { draw, drawOverlay } from './waveform.js';
+import { SoundTouchNode } from './vendor/SoundTouchNode.js';
+
+let workletReady = null;
+
+export function ensureWorklet() {
+  if (!s.audioCtx) return Promise.resolve();
+  if (!workletReady) {
+    workletReady = SoundTouchNode.register(s.audioCtx, 'js/vendor/soundtouch-processor.js').catch(
+      (err) => {
+        console.warn('SoundTouch worklet registration failed:', err);
+        workletReady = null;
+      },
+    );
+  }
+  return workletReady;
+}
 
 function killSource() {
+  if (s.soundTouchNode) {
+    try {
+      s.soundTouchNode.disconnect();
+    } catch {
+      /* not connected */
+    }
+    s.soundTouchNode = null;
+  }
   if (s.sourceNode) {
-    try { s.sourceNode.stop(); } catch { /* already stopped */ }
-    try { s.sourceNode.disconnect(); } catch { /* not connected */ }
+    try {
+      s.sourceNode.stop();
+    } catch {
+      /* already stopped */
+    }
+    try {
+      s.sourceNode.disconnect();
+    } catch {
+      /* not connected */
+    }
     s.sourceNode = null;
   }
 }
 
-function startSource(offset) {
+async function startSource(offset) {
   if (!s.buffer || !s.audioCtx) return;
   killSource();
   const node = s.audioCtx.createBufferSource();
   node.buffer = s.buffer;
   node.playbackRate.value = s.playSpeed;
-  node.connect(s.audioCtx.destination);
+
+  await ensureWorklet();
+
+  let connected = false;
+  try {
+    const stNode = new SoundTouchNode(s.audioCtx);
+    node.connect(stNode);
+    stNode.connect(s.audioCtx.destination);
+    stNode.playbackRate.value = s.playSpeed;
+    stNode.pitch.value = 1.0;
+    s.soundTouchNode = stNode;
+    connected = true;
+  } catch (err) {
+    console.warn('SoundTouchNode creation failed, falling back to pitch-shifted playback:', err);
+  }
+
+  if (!connected) {
+    node.connect(s.audioCtx.destination);
+  }
+
   node.onended = () => {
     if (s.sourceNode !== node) return;
     if (s.isPlaying) {
@@ -36,6 +87,7 @@ function startSource(offset) {
 export function initAudio() {
   if (!s.audioCtx) s.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   if (s.audioCtx.state === 'suspended') s.audioCtx.resume().catch(() => {});
+  ensureWorklet();
 }
 
 export function getCurrentTime() {
@@ -86,6 +138,7 @@ export function updatePlayBtn() {
 export function updateSpeed(val) {
   s.playSpeed = parseFloat(val) || 1;
   if (s.sourceNode) s.sourceNode.playbackRate.value = s.playSpeed;
+  if (s.soundTouchNode) s.soundTouchNode.playbackRate.value = s.playSpeed;
   const btns = document.querySelectorAll('#speedBtns button');
   btns.forEach((b) => b.classList.toggle('active', parseFloat(b.dataset.speed) === s.playSpeed));
 }
@@ -153,8 +206,12 @@ async function requestWakeLock() {
   if (!('wakeLock' in navigator)) return;
   try {
     wakeLock = await navigator.wakeLock.request('screen');
-    wakeLock.addEventListener('release', () => { wakeLock = null; });
-  } catch { wakeLock = null; }
+    wakeLock.addEventListener('release', () => {
+      wakeLock = null;
+    });
+  } catch {
+    wakeLock = null;
+  }
 }
 
 function releaseWakeLock() {

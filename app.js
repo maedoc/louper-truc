@@ -26,6 +26,7 @@ let sampleRate = 0;
 let duration = 0;
 
 let sourceNode = null;
+let soundTouchNode = null;
 let playStartTime = 0;
 let playStartOffset = 0;
 
@@ -50,6 +51,31 @@ let longPressTimer = null;
 let lastInteractionTime = 0;
 const autoFollow = true;
 let raf = 0;
+
+/* ---------- SoundTouch worklet ---------- */
+let workletReady = null;
+
+const SoundTouchNode = class extends AudioWorkletNode {
+  constructor(ctx) {
+    super(ctx, 'soundtouch-processor', { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [2] });
+  }
+  get pitch() { return this.parameters.get('pitch'); }
+  get tempo() { return this.parameters.get('tempo'); }
+  get rate() { return this.parameters.get('rate'); }
+  get pitchSemitones() { return this.parameters.get('pitchSemitones'); }
+  get playbackRate() { return this.parameters.get('playbackRate'); }
+};
+
+function ensureWorklet() {
+  if (!audioCtx) return Promise.resolve();
+  if (!workletReady) {
+    workletReady = audioCtx.audioWorklet.addModule('js/vendor/soundtouch-processor.js').catch(err => {
+      console.warn('SoundTouch worklet registration failed:', err);
+      workletReady = null;
+    });
+  }
+  return workletReady;
+}
 
 /* ---------- DOM ---------- */
 const $ = id => document.getElementById(id);
@@ -93,6 +119,10 @@ window.addEventListener('resize', resize);
 
 /* ---------- audio ---------- */
 function killSource() {
+  if (soundTouchNode) {
+    try { soundTouchNode.disconnect(); } catch {}
+    soundTouchNode = null;
+  }
   if (sourceNode) {
     try { sourceNode.stop(); } catch { /* already stopped */ }
     try { sourceNode.disconnect(); } catch {}
@@ -100,13 +130,32 @@ function killSource() {
   }
 }
 
-function startSource(offset) {
+async function startSource(offset) {
   if (!buffer || !audioCtx) return;
   killSource();
   const node = audioCtx.createBufferSource();
   node.buffer = buffer;
   node.playbackRate.value = playSpeed;
-  node.connect(audioCtx.destination);
+
+  await ensureWorklet();
+
+  let connected = false;
+  try {
+    const stNode = new SoundTouchNode(audioCtx);
+    node.connect(stNode);
+    stNode.connect(audioCtx.destination);
+    stNode.playbackRate.value = playSpeed;
+    stNode.pitch.value = 1.0;
+    soundTouchNode = stNode;
+    connected = true;
+  } catch (err) {
+    console.warn('SoundTouchNode creation failed, falling back to pitch-shifted playback:', err);
+  }
+
+  if (!connected) {
+    node.connect(audioCtx.destination);
+  }
+
   node.onended = () => {
     if (sourceNode !== node) return;
     if (isPlaying) {
@@ -127,6 +176,7 @@ function startSource(offset) {
 function initAudio() {
   if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   if (audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
+  ensureWorklet();
 }
 
 function getCurrentTime() {
@@ -170,6 +220,7 @@ function updatePlayBtn() { $('btnPlay').textContent = isPlaying ? 'Pause' : 'Pla
 function updateSpeed(val) {
   playSpeed = parseFloat(val) || 1;
   if (sourceNode) sourceNode.playbackRate.value = playSpeed;
+  if (soundTouchNode) soundTouchNode.playbackRate.value = playSpeed;
   const btns = document.querySelectorAll('#speedBtns button');
   btns.forEach(b => b.classList.toggle('active', parseFloat(b.dataset.speed) === playSpeed));
 }
@@ -256,6 +307,7 @@ function guessMime(ab) {
 
 async function loadArrayBuffer(ab, name) {
   initAudio();
+  ensureWorklet();
   if (ab.byteLength < 200) {
     const text = new TextDecoder().decode(ab);
     if (text.startsWith('version https://git-lfs.github.com')) {

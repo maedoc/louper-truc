@@ -24,6 +24,7 @@ export const s = {
   sampleRate: 0,
   duration: 0,
   sourceNode: null,
+  soundTouchNode: null,
   playStartTime: 0,
   playStartOffset: 0,
   zoom: 1,

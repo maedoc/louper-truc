@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "postinstall": "mkdir -p js/vendor && cp node_modules/@soundtouchjs/audio-worklet/dist/soundtouch-processor.js node_modules/@soundtouchjs/audio-worklet/dist/SoundTouchNode.js node_modules/@soundtouchjs/audio-worklet/dist/constants.js js/vendor/",
     "lint": "eslint js/",
     "format": "prettier --write 'js/**/*.js' 'index.html' 'style.css'",
     "format:check": "prettier --check 'js/**/*.js' 'index.html' 'style.css'",
@@ -10,9 +11,12 @@
     "test:watch": "vitest"
   },
   "devDependencies": {
+    "@eslint/js": "^9.22.0",
     "eslint": "^9.22.0",
     "prettier": "^3.5.3",
-    "vitest": "^3.0.9",
-    "@eslint/js": "^9.22.0"
+    "vitest": "^3.0.9"
+  },
+  "dependencies": {
+    "@soundtouchjs/audio-worklet": "^1.0.10"
   }
 }

@@ -1,7 +1,7 @@
 /* louper-truc — track catalog & file loading */
 import { s, fmt, ZOOM_MIN } from './state.js';
 import { draw, computePeaks, updateZoomUI } from './waveform.js';
-import { initAudio, stopInternal } from './audio.js';
+import { initAudio, stopInternal, ensureWorklet } from './audio.js';
 import { saveTrack, loadTrack, getSavedIds, openDB } from './persistence.js';
 
 const STORE = 'tracks';
@@ -70,6 +70,7 @@ export const BUNDLED_TRACKS = [
 
 export async function loadArrayBuffer(ab, name) {
   initAudio();
+  ensureWorklet();
   if (ab.byteLength < 200) {
     const text = new TextDecoder().decode(ab);
     if (text.startsWith('version https://git-lfs.github.com')) {
