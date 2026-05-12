@@ -66,6 +66,8 @@ export const BUNDLED_TRACKS = [
   { id: 'b18', file: 'assets/tracks/18_Half_Nelson.ogg', name: 'Half Nelson' },
   { id: 'b19', file: 'assets/tracks/19_Airegin.ogg', name: 'Airegin' },
   { id: 'b20', file: 'assets/tracks/20_Moments_Notice.ogg', name: "Moment's Notice" },
+  { id: 'b21', file: 'assets/tracks/Strollin_Horace_Silver.ogg', name: "Strollin'" },
+  { id: 'b22', file: 'assets/tracks/Heres_That_Rainy_Day_Desmond.ogg', name: "Here's That Rainy Day" },
 ];
 
 export async function loadArrayBuffer(ab, name) {
